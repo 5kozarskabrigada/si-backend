@@ -1,53 +1,82 @@
 // server.js
+require('dotenv').config(); // To manage secret keys
 const express = require('express');
 const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js');
+
 const app = express();
 const port = process.env.PORT || 3000;
+
+// --- Supabase Setup ---
+// Put these in a .env file for security!
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.use(cors());
 app.use(express.json());
 
-const players = {};
+// --- API Endpoints ---
+app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
-// New, more detailed player data structure
-const defaultPlayerData = {
-    score: 0.0,
-    autoClickRate: 0.000000001, // Passive income per second
-    lastUpdated: Date.now()
-};
-
-app.get('/', (req, res) => {
-    res.send('Backend is running!');
-});
-
-app.get('/player/:userId', (req, res) => {
+app.get('/player/:userId', async (req, res) => {
     const { userId } = req.params;
-    if (!players[userId]) {
-        players[userId] = { ...defaultPlayerData };
-    }
-    // Calculate offline progress (optional but good practice)
-    const now = Date.now();
-    const timeOffline = (now - players[userId].lastUpdated) / 1000; // seconds
-    const offlineEarnings = timeOffline * players[userId].autoClickRate;
-    players[userId].score += offlineEarnings;
-    players[userId].lastUpdated = now;
 
-    console.log(`[GET] User ${userId} data requested. Granted ${offlineEarnings.toFixed(9)} for offline time.`);
-    res.json(players[userId]);
+    // First, try to get the player
+    let { data: player, error } = await supabase
+        .from('players')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 means 'not found'
+        console.error('Error fetching player:', error);
+        return res.status(500).json({ error: error.message });
+    }
+
+    // If player not found, create them
+    if (!player) {
+        const { data: newPlayer, error: insertError } = await supabase
+            .from('players')
+            .insert({ user_id: userId })
+            .select()
+            .single();
+
+        if (insertError) {
+            console.error('Error creating player:', insertError);
+            return res.status(500).json({ error: insertError.message });
+        }
+        player = newPlayer;
+        console.log(`[GET] New player created: ${userId}`);
+    } else {
+        // Calculate offline progress for existing players
+        const now = new Date();
+        const lastUpdated = new Date(player.last_updated);
+        const timeOffline = (now - lastUpdated) / 1000; // seconds
+        const offlineEarnings = timeOffline * player.auto_click_rate;
+        player.score = parseFloat(player.score) + offlineEarnings;
+    }
+
+    res.json(player);
 });
 
-app.post('/player/sync', (req, res) => {
+app.post('/player/sync', async (req, res) => {
     const { userId, score } = req.body;
-    if (typeof userId === 'undefined' || typeof score === 'undefined') {
+
+    if (!userId || typeof score === 'undefined') {
         return res.status(400).json({ error: 'Missing userId or score' });
     }
-    if (!players[userId]) {
-        players[userId] = { ...defaultPlayerData };
+
+    const { error } = await supabase
+        .from('players')
+        .update({ score: score, last_updated: new Date().toISOString() })
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Error syncing score:', error);
+        return res.status(500).json({ error: error.message });
     }
-    players[userId].score = score;
-    players[userId].lastUpdated = Date.now(); // Update timestamp on sync
-    // Don't log every sync to avoid spamming logs, or make it less verbose
-    // console.log(`[POST] Synced User ${userId} score to ${score.toFixed(9)}`);
+
     res.json({ success: true });
 });
 
