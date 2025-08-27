@@ -2,42 +2,56 @@
 const express = require('express');
 const cors = require('cors');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000; // Use environment variable for port
 
-// --- Middleware ---
-app.use(cors()); // Allow requests from your Mini App's URL
-app.use(express.json()); // Allow the server to read JSON from requests
+app.use(cors());
+app.use(express.json());
 
-// --- In-Memory Database (for simplicity) ---
-// This will store scores. When the server restarts, data is lost.
-// For a real app, you would use a database like PostgreSQL or MongoDB.
-const playerScores = {};
+// In-memory database
+const players = {};
+
+// Default player data structure for new players
+const defaultPlayerData = {
+    score: 0,
+    // We can add more things here later, like upgrades
+    // autoClickerLevel: 0,
+    // clickMultiplier: 1,
+};
 
 // --- API Endpoints ---
+app.get('/', (req, res) => {
+    res.send('Backend is running!');
+});
 
-// GET: Fetch a user's score
-app.get('/score/:userId', (req, res) => {
+// GET: Fetch a user's data
+app.get('/player/:userId', (req, res) => {
     const { userId } = req.params;
-    const score = playerScores[userId] || 0; // Return 0 if the user is new
-    console.log(`[GET] User ${userId} score is ${score}`);
-    res.json({ score });
+    // If player doesn't exist, create them with default data
+    if (!players[userId]) {
+        players[userId] = { ...defaultPlayerData };
+    }
+    console.log(`[GET] User ${userId} data requested.`);
+    res.json(players[userId]);
 });
 
 // POST: Update a user's score
-app.post('/score', (req, res) => {
+app.post('/player/sync', (req, res) => {
     const { userId, score } = req.body;
 
-    // Basic validation
     if (typeof userId === 'undefined' || typeof score === 'undefined') {
         return res.status(400).json({ error: 'Missing userId or score' });
     }
 
-    playerScores[userId] = score;
-    console.log(`[POST] Updated User ${userId} score to ${score}`);
-    res.json({ success: true, message: 'Score updated.' });
+    // Ensure player exists before updating
+    if (!players[userId]) {
+        players[userId] = { ...defaultPlayerData };
+    }
+
+    players[userId].score = score;
+    console.log(`[POST] Synced User ${userId} score to ${score}`);
+    res.json({ success: true, message: 'Score synced.' });
 });
 
-// --- Start the Server ---
 app.listen(port, () => {
-    console.log(`Backend server is running on http://localhost:${port}`);
+    console.log(`Backend server is running on port ${port}`);
 });
