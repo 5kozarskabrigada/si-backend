@@ -1,4 +1,4 @@
-// server.js
+// server.js - FIXED VERSION
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -34,7 +34,12 @@ app.get('/player/:userId', async (req, res) => {
         // Player not found, so we create them
         const { data: newPlayer, error: insertError } = await supabase
             .from('players')
-            .insert({ user_id: userId }) // Inserts a new row with the default values from your SQL table
+            .insert({
+                user_id: userId,
+                score: 0.0,
+                auto_click_rate: 0.000000001,
+                last_updated: new Date().toISOString()
+            })
             .select()
             .single();
 
@@ -42,10 +47,9 @@ app.get('/player/:userId', async (req, res) => {
             console.error('Error creating player:', insertError);
             return res.status(500).json({ error: insertError.message });
         }
-        // **CRITICAL FIX:** Assign the newly created player data to the 'player' variable
+
         player = newPlayer;
         console.log(`[GET] New player created and returned: ${userId}`);
-
     } else {
         // Player was found, calculate offline progress
         const now = new Date();
@@ -56,6 +60,12 @@ app.get('/player/:userId', async (req, res) => {
         if (timeOffline > 10) {
             const offlineEarnings = timeOffline * parseFloat(player.auto_click_rate);
             player.score = parseFloat(player.score) + offlineEarnings;
+
+            // Update the last_updated time after calculating offline earnings
+            await supabase
+                .from('players')
+                .update({ last_updated: new Date().toISOString() })
+                .eq('user_id', userId);
         }
     }
 
@@ -69,7 +79,10 @@ app.post('/player/sync', async (req, res) => {
     }
     const { error } = await supabase
         .from('players')
-        .update({ score: score, last_updated: new Date().toISOString() })
+        .update({
+            score: score,
+            last_updated: new Date().toISOString()
+        })
         .eq('user_id', userId);
     if (error) {
         return res.status(500).json({ error: error.message });
