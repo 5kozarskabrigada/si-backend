@@ -46,10 +46,10 @@ bot.onText(/\/start/, async (msg) => {
                 first_name: first_name,
                 last_name: last_name,
                 language_code: language_code,
-                profile_photo_url: profile_photo_url,
-                last_updated: new Date().toISOString() // Update their activity timestamp
+                profile_photo_url: profile_photo_url, // This should now work
+                last_updated: new Date().toISOString()
             },
-            { onConflict: 'user_id' } // This tells Supabase to update if the user_id already exists
+            { onConflict: 'user_id' }
         );
 
         if (error) throw error;

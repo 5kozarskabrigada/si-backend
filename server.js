@@ -30,28 +30,61 @@ app.get('/', (req, res) => res.send('Backend is running and connected to Supabas
 app.get('/player/:userId', async (req, res) => {
     const { userId } = req.params;
 
-    // The only change is ensuring we select all columns with '*'
-    let { data: player, error } = await supabase
-        .from('players')
-        .select('*') // This already selects all new columns
-        .eq('user_id', userId)
-        .single();
-        
-    if (error && error.code !== 'PGRST116') return res.status(500).json({ error: error.message });
-    if (!player) {
-        const { data: newPlayer, error: insertError } = await supabase.from('players').insert({ user_id: userId }).select().single();
-        if (insertError) return res.status(500).json({ error: insertError.message });
-        player = newPlayer;
-    } else {
+    try {
+        // Try to get the player
+        let { data: player, error } = await supabase
+            .from('players')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (error && error.code === 'PGRST116') { // No rows found
+            // Create a new player with default values
+            const { data: newPlayer, error: insertError } = await supabase
+                .from('players')
+                .insert({
+                    user_id: userId,
+                    score: 0,
+                    click_value: 0.000000001,
+                    auto_click_rate: 0.000000001,
+                    offline_rate_per_hour: 0.000000001
+                })
+                .select()
+                .single();
+
+            if (insertError) throw insertError;
+            player = newPlayer;
+        } else if (error) {
+            throw error;
+        }
+
+        // Calculate offline earnings if needed
         const now = new Date();
         const lastUpdated = new Date(player.last_updated);
-        const timeOffline = (now - lastUpdated) / 1000;
-        if (timeOffline > 10) {
-            const offlineEarnings = timeOffline * parseFloat(player.auto_click_rate);
-            player.score = parseFloat(player.score) + offlineEarnings;
+        const timeOfflineSeconds = (now - lastUpdated) / 1000;
+
+        if (timeOfflineSeconds > 10) {
+            const offlineEarnings = new Decimal(player.auto_click_rate)
+                .times(timeOfflineSeconds)
+                .plus(new Decimal(player.offline_rate_per_hour).times(timeOfflineSeconds / 3600));
+
+            player.score = new Decimal(player.score).plus(offlineEarnings).toFixed(9);
+
+            // Update the last_updated timestamp
+            await supabase
+                .from('players')
+                .update({
+                    score: player.score,
+                    last_updated: now.toISOString()
+                })
+                .eq('user_id', userId);
         }
+
+        res.json(player);
+    } catch (error) {
+        console.error('Error fetching player:', error);
+        res.status(500).json({ error: error.message });
     }
-    res.json(player);
 });
 
 app.post('/player/sync', async (req, res) => {
