@@ -103,11 +103,10 @@ app.post('/player/syncProfile', async (req, res) => {
                 last_name,
                 language_code,
                 profile_photo_url: photo_url,
-                last_updated: new Date().toISOString()
+                last_updated: new Date().toISOString(),
             },
             { onConflict: 'user_id' }
         );
-
         if (error) throw error;
         res.json({ success: true });
     } catch (err) {
