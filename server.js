@@ -90,6 +90,33 @@ app.get('/player/:userId', async (req, res) => {
     }
 });
 
+app.post('/player/syncProfile', async (req, res) => {
+    const { user_id, username, first_name, last_name, language_code, photo_url } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+
+    try {
+        const { error } = await supabase.from('players').upsert(
+            {
+                user_id,
+                username,
+                first_name,
+                last_name,
+                language_code,
+                profile_photo_url: photo_url,
+                last_updated: new Date().toISOString()
+            },
+            { onConflict: 'user_id' }
+        );
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (err) {
+        console.error('syncProfile failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 app.post('/player/sync', async (req, res) => {
     // This endpoint is also fine.
     const { userId, score } = req.body;
