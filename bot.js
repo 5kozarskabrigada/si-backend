@@ -31,22 +31,19 @@ bot.onText(/\/start/, async (msg) => {
         let profile_photo_url = null;
         const photos = await bot.getUserProfilePhotos(telegram_id, { limit: 1 });
         if (photos && photos.photos.length > 0) {
-            // Get the highest resolution photo
             const fileId = photos.photos[0][photos.photos[0].length - 1].file_id;
-            // Get the temporary downloadable link for the photo
-            profile_photo_url = await bot.getFileLink(fileId);
+            profile_photo_url = await bot.getFileLink(fileId); // Gets the direct URL
         }
 
-        // 2. Create or Update the User in Supabase
-        // 'upsert' is perfect: it creates if the user is new, or updates if they exist.
+        // 2. Create or Update the User in Supabase (this is already implemented correctly)
         const { error } = await supabase.from('players').upsert(
             {
                 user_id: telegram_id,
-                username: username || `user_${telegram_id}`,
+                username: username || `user_${telegram_id}`, // Uses Telegram username if available
                 first_name: first_name,
                 last_name: last_name,
                 language_code: language_code,
-                profile_photo_url: profile_photo_url, // This should now work
+                profile_photo_url: profile_photo_url, // Stores the URL
                 last_updated: new Date().toISOString()
             },
             { onConflict: 'user_id' }
