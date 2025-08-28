@@ -80,7 +80,10 @@ app.get('/player/:userId', async (req, res) => {
                 .eq('user_id', userId);
         }
 
-        res.json(player);
+        res.json({
+            ...player,
+            profile_photo_url: player.profile_photo_url
+        });
     } catch (error) {
         console.error('Error fetching player:', error);
         res.status(500).json({ error: error.message });
