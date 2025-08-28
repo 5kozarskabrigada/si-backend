@@ -28,9 +28,15 @@ const upgrades = {
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
 app.get('/player/:userId', async (req, res) => {
-    // This endpoint is already robust and works well. No changes needed here.
     const { userId } = req.params;
-    let { data: player, error } = await supabase.from('players').select('*').eq('user_id', userId).single();
+
+    // The only change is ensuring we select all columns with '*'
+    let { data: player, error } = await supabase
+        .from('players')
+        .select('*') // This already selects all new columns
+        .eq('user_id', userId)
+        .single();
+        
     if (error && error.code !== 'PGRST116') return res.status(500).json({ error: error.message });
     if (!player) {
         const { data: newPlayer, error: insertError } = await supabase.from('players').insert({ user_id: userId }).select().single();
