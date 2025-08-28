@@ -27,7 +27,6 @@ bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
 
     try {
-        // 1. Get User Profile Picture
         let profile_photo_url = null;
         const photos = await bot.getUserProfilePhotos(telegram_id, { limit: 1 });
         if (photos && photos.photos.length > 0) {
