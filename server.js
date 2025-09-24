@@ -230,6 +230,40 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
 
 
 
+app.get('/wallet/history/:userId', async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) {
+        return res.status(400).json({ error: 'Missing userId' });
+    }
+
+    try {
+        // Find transactions where the current user was either the sender OR the receiver
+        const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`) // This finds ALL transactions for the user
+            .order('created_at', { ascending: false })
+            .limit(50); // Get the 50 most recent transactions
+
+        if (error) {
+            throw error;
+        }
+
+        // We will add a 'type' to each transaction to make it easy for the frontend
+        const processedData = data.map(tx => ({
+            ...tx,
+            type: Number(tx.sender_id) === Number(userId) ? 'sent' : 'received'
+        }));
+
+        res.json(processedData);
+
+    } catch (error) {
+        console.error('Error fetching transaction history:', error);
+        res.status(500).json({ error: 'Failed to fetch transaction history.' });
+    }
+});
+
+
 app.post('/wallet/transfer', async (req, res) => {
     const { senderId, receiverUsername, amount } = req.body;
 
@@ -324,38 +358,5 @@ app.post('/wallet/transfer', async (req, res) => {
     }
 });
 
-// POST to send coins to another user
-app.post('/wallet/transfer', async (req, res) => {
-    const { senderId, receiverUsername, amount } = req.body;
-    const transferAmount = new Decimal(amount);
-
-    // Basic validation
-    if (!senderId || !receiverUsername || !amount || transferAmount.isNegative() || transferAmount.isZero()) {
-        return res.status(400).json({ error: 'Invalid transaction data.' });
-    }
-
-    try {
-        // Use a Supabase RPC (Remote Procedure Call) to run the transfer as a single, safe transaction
-        const { data, error } = await supabase.rpc('execute_transfer', {
-            sender_id_in: senderId,
-            receiver_username_in: receiverUsername,
-            amount_in: transferAmount.toFixed(9)
-        });
-
-        if (error) throw error;
-
-        // The RPC returns true on success
-        if (data) {
-            res.json({ success: true, message: 'Transfer successful!' });
-        } else {
-            // The RPC returns false if the receiver doesn't exist or sender has insufficient funds
-            throw new Error('Transfer failed. Check receiver username and your balance.');
-        }
-
-    } catch (error) {
-        console.error('Transfer error:', error);
-        res.status(500).json({ error: error.message || 'Failed to complete transfer.' });
-    }
-});
 
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
