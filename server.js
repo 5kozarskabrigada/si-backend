@@ -204,4 +204,28 @@ app.post('/player/upgrade', async (req, res) => {
     }
 });
 
+app.get('/leaderboard/:sortBy', async (req, res) => {
+    const { sortBy } = req.params;
+    const validSorts = ['score', 'click_value', 'auto_click_rate'];
+
+    if (!validSorts.includes(sortBy)) {
+        return res.status(400).json({ error: 'Invalid sort parameter.' });
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('players')
+            .select('username, profile_photo_url, score, click_value, auto_click_rate')
+            .order(sortBy, { ascending: false })
+            .limit(10);
+
+        if (error) throw error;
+
+        res.json(data);
+    } catch (error) {
+        console.error(`Error fetching leaderboard for ${sortBy}:`, error);
+        res.status(500).json({ error: 'Failed to fetch leaderboard data.' });
+    }
+});
+
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
