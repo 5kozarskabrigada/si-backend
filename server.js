@@ -232,31 +232,95 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
 
 app.post('/wallet/transfer', async (req, res) => {
     const { senderId, receiverUsername, amount } = req.body;
-    const transferAmount = new Decimal(amount);
 
-    if (!senderId || !receiverUsername || !amount || transferAmount.isNegative() || transferAmount.isZero()) {
-        return res.status(400).json({ error: 'Invalid transaction data.' });
+    // 1. --- Input Validation ---
+    if (!senderId || !receiverUsername || !amount) {
+        return res.status(400).json({ error: 'Invalid input. Missing fields.' });
+    }
+    const transferAmount = new Decimal(amount);
+    if (transferAmount.isNegative() || transferAmount.isZero() || !transferAmount.isFinite()) {
+        return res.status(400).json({ error: 'Invalid transfer amount.' });
     }
 
     try {
-        // Use a Supabase RPC with the CORRECTED parameter names
-        const { data, error } = await supabase.rpc('execute_transfer', {
-            p_sender_id: senderId,
-            p_receiver_username: receiverUsername,
-            p_amount: transferAmount.toFixed(9)
-        });
+        // 2. --- Find the Receiver ---
+        const { data: receiver, error: receiverError } = await supabase
+            .from('players')
+            .select('user_id, score')
+            .eq('username', receiverUsername)
+            .single();
 
-        if (error) throw error;
+        if (receiverError || !receiver) {
+            throw new Error(`Receiver user "${receiverUsername}" not found.`);
+        }
+        const receiverId = receiver.user_id;
 
-        if (data) {
-            res.json({ success: true, message: 'Transfer successful!' });
-        } else {
-            throw new Error('Transfer failed. Check receiver username and your balance.');
+        // Prevent users from sending to themselves
+        if (Number(senderId) === Number(receiverId)) {
+            throw new Error("You cannot send coins to yourself.");
         }
 
+        // 3. --- Find the Sender and Check Balance ---
+        const { data: sender, error: senderError } = await supabase
+            .from('players')
+            .select('score')
+            .eq('user_id', senderId)
+            .single();
+
+        if (senderError || !sender) {
+            throw new Error("Sender user not found.");
+        }
+        const senderBalance = new Decimal(sender.score);
+        if (senderBalance.lessThan(transferAmount)) {
+            throw new Error("Insufficient funds.");
+        }
+
+        // 4. --- Perform the Transaction ---
+        const newSenderScore = senderBalance.minus(transferAmount);
+        const newReceiverScore = new Decimal(receiver.score).plus(transferAmount);
+
+        // Debit the sender
+        const { error: updateSenderError } = await supabase
+            .from('players')
+            .update({ score: newSenderScore.toFixed(9) })
+            .eq('user_id', senderId);
+
+        if (updateSenderError) throw new Error('Failed to update sender balance.');
+
+        // Credit the receiver
+        const { error: updateReceiverError } = await supabase
+            .from('players')
+            .update({ score: newReceiverScore.toFixed(9) })
+            .eq('user_id', receiverId);
+
+        if (updateReceiverError) {
+            // CRITICAL: If this fails, we must refund the sender!
+            await supabase.from('players').update({ score: senderBalance.toFixed(9) }).eq('user_id', senderId);
+            throw new Error('Failed to update receiver balance. Transfer has been cancelled and refunded.');
+        }
+
+        // 5. --- Log the Transaction ---
+        const { error: logError } = await supabase
+            .from('transactions')
+            .insert({
+                sender_id: senderId,
+                receiver_id: receiverId,
+                amount: transferAmount.toFixed(9),
+                receiver_username: receiverUsername
+            });
+
+        if (logError) {
+            // The transfer succeeded but logging failed. Log an error on the backend.
+            console.error("CRITICAL: Transaction succeeded but logging failed!", logError);
+        }
+
+        // 6. --- Success ---
+        res.json({ success: true, message: 'Transfer successful!' });
+
     } catch (error) {
-        console.error('Transfer error:', error);
-        res.status(500).json({ error: error.message || 'Failed to complete transfer.' });
+        // This will catch any errors thrown above (user not found, insufficient funds, etc.)
+        console.error('Transfer failed:', error.message);
+        return res.status(500).json({ error: error.message || 'An unknown error occurred during the transfer.' });
     }
 });
 
