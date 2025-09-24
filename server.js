@@ -228,4 +228,60 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
     }
 });
 
+
+
+app.get('/wallet/history/:userId', async (req, res) => {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+
+    try {
+        const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .eq('sender_id', userId) // Find transactions where the user is the sender
+            .order('created_at', { ascending: false })
+            .limit(50); // Get the 50 most recent transactions
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        console.error('Error fetching transaction history:', error);
+        res.status(500).json({ error: 'Failed to fetch transaction history.' });
+    }
+});
+
+// POST to send coins to another user
+app.post('/wallet/transfer', async (req, res) => {
+    const { senderId, receiverUsername, amount } = req.body;
+    const transferAmount = new Decimal(amount);
+
+    // Basic validation
+    if (!senderId || !receiverUsername || !amount || transferAmount.isNegative() || transferAmount.isZero()) {
+        return res.status(400).json({ error: 'Invalid transaction data.' });
+    }
+
+    try {
+        // Use a Supabase RPC (Remote Procedure Call) to run the transfer as a single, safe transaction
+        const { data, error } = await supabase.rpc('execute_transfer', {
+            sender_id_in: senderId,
+            receiver_username_in: receiverUsername,
+            amount_in: transferAmount.toFixed(9)
+        });
+
+        if (error) throw error;
+
+        // The RPC returns true on success
+        if (data) {
+            res.json({ success: true, message: 'Transfer successful!' });
+        } else {
+            // The RPC returns false if the receiver doesn't exist or sender has insufficient funds
+            throw new Error('Transfer failed. Check receiver username and your balance.');
+        }
+
+    } catch (error) {
+        console.error('Transfer error:', error);
+        res.status(500).json({ error: error.message || 'Failed to complete transfer.' });
+    }
+});
+
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
