@@ -44,6 +44,36 @@ const upgrades = {
 // --- API Endpoints ---
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
+// Admin authentication middleware
+const authenticateAdmin = async (req, res, next) => {
+    try {
+        const { admin_id } = req.body;
+
+        if (!admin_id) {
+            return res.status(401).json({ error: 'Admin ID required' });
+        }
+
+        // Check if user is an active admin
+        const { data: admin, error } = await supabase
+            .from('admin_users')
+            .select('*')
+            .eq('user_id', admin_id)
+            .eq('is_active', true)
+            .single();
+
+        if (error || !admin) {
+            return res.status(403).json({ error: 'Access denied. Not an admin.' });
+        }
+
+        req.admin = admin;
+        next();
+    } catch (error) {
+        res.status(500).json({ error: 'Admin authentication failed' });
+    }
+};
+
+
+
 app.get('/player/:userId', async (req, res) => {
     const { userId } = req.params;
 
@@ -198,6 +228,16 @@ app.post('/player/upgrade', async (req, res) => {
 
         res.json({ success: true, player: updatedPlayer });
 
+        await supabase
+            .from('user_logs')
+            .insert({
+                user_id: userId,
+                username: player.username,
+                action_type: 'upgrade_purchase',
+                details: `Purchased ${upgradeId} for ${cost}`
+            });
+
+
     } catch (error) {
         console.error(`Upgrade error for user ${userId}, upgrade ${upgradeId}:`, error);
         res.status(500).json({ error: 'Failed to purchase upgrade.' });
@@ -279,6 +319,15 @@ app.post('/tasks/claim', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+    await supabase
+        .from('user_logs')
+        .insert({
+            user_id: userId,
+            username: player.username,
+            action_type: 'upgrade_purchase',
+            details: `Purchased ${upgradeId} for ${cost}`
+        });
+
 });
 
 
@@ -361,6 +410,15 @@ app.post('/wallet/transfer', async (req, res) => {
                 receiver_username: receiverUsername
             });
 
+        await supabase
+            .from('user_logs')
+            .insert({
+                user_id: userId,
+                username: player.username,
+                action_type: 'upgrade_purchase',
+                details: `Purchased ${upgradeId} for ${cost}`
+            });
+
         if (logError) {
             // The transfer succeeded but logging failed. Log an error on the backend.
             console.error("CRITICAL: Transaction succeeded but logging failed!", logError);
@@ -374,7 +432,329 @@ app.post('/wallet/transfer', async (req, res) => {
         console.error('Transfer failed:', error.message);
         return res.status(500).json({ error: error.message || 'An unknown error occurred during the transfer.' });
     }
+
+
+    
 });
 
+
+
+// Get all users with pagination and search
+app.get('/admin/users', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20, search = '' } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        let query = supabase
+            .from('players')
+            .select('*', { count: 'exact' })
+            .range(from, to);
+
+        // Apply search if provided
+        if (search) {
+            query = query.or(`username.ilike.%${search}%,user_id.eq.${search}`);
+        }
+
+        const { data, error, count } = await query;
+
+        if (error) throw error;
+
+        res.json({
+            users: data,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update user data
+app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const updates = req.body;
+
+        const { data, error } = await supabase
+            .from('players')
+            .update(updates)
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'update_user',
+                target_user_id: userId,
+                details: `Updated user data: ${JSON.stringify(updates)}`
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Ban user
+app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('players')
+            .update({ is_banned: true })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'ban_user',
+                target_user_id: userId,
+                details: 'User banned'
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Unban user
+app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('players')
+            .update({ is_banned: false })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'unban_user',
+                target_user_id: userId,
+                details: 'User unbanned'
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get user logs
+app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20, userId } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        let query = supabase
+            .from('user_logs')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (userId) {
+            query = query.eq('user_id', userId);
+        }
+
+        const { data, error, count } = await query;
+
+        if (error) throw error;
+
+        res.json({
+            logs: data,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get admin logs
+app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data, error, count } = await supabase
+            .from('admin_logs')
+            .select(`
+                *,
+                admin_users:admin_id (
+                    username
+                )
+            `, { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        res.json({
+            logs: data,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get dashboard stats
+app.get('/admin/stats', authenticateAdmin, async (req, res) => {
+    try {
+        // Total users
+        const { count: totalUsers } = await supabase
+            .from('players')
+            .select('*', { count: 'exact', head: true });
+
+        // Active today
+        const today = new Date().toISOString().split('T')[0];
+        const { count: activeToday } = await supabase
+            .from('players')
+            .select('*', { count: 'exact', head: true })
+            .gte('last_updated', today);
+
+        // Banned users
+        const { count: bannedUsers } = await supabase
+            .from('players')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_banned', true);
+
+        res.json({
+            totalUsers,
+            activeToday,
+            bannedUsers,
+            totalClicks: 0 // You'll need to track this separately
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+// Get transactions for admin panel
+app.get('/admin/transactions', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data, error, count } = await supabase
+            .from('transactions')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        res.json({
+            transactions: data,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page)
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Make user admin
+app.post('/admin/users/:userId/make-admin', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('admin_users')
+            .insert({
+                user_id: userId,
+                is_active: true,
+                created_by: req.admin.user_id
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'make_admin',
+                target_user_id: userId,
+                details: 'User promoted to admin'
+            });
+
+        res.json({ success: true, admin: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Remove admin privileges
+app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('admin_users')
+            .update({ is_active: false })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'remove_admin',
+                target_user_id: userId,
+                details: 'Admin privileges removed'
+            });
+
+        res.json({ success: true, admin: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
