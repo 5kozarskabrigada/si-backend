@@ -319,14 +319,7 @@ app.post('/tasks/claim', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-    await supabase
-        .from('user_logs')
-        .insert({
-            user_id: userId,
-            username: player.username,
-            action_type: 'upgrade_purchase',
-            details: `Purchased ${upgradeId} for ${cost}`
-        });
+
 
 });
 
@@ -408,15 +401,6 @@ app.post('/wallet/transfer', async (req, res) => {
                 receiver_id: receiverId,
                 amount: transferAmount.toFixed(9),
                 receiver_username: receiverUsername
-            });
-
-        await supabase
-            .from('user_logs')
-            .insert({
-                user_id: userId,
-                username: player.username,
-                action_type: 'upgrade_purchase',
-                details: `Purchased ${upgradeId} for ${cost}`
             });
 
         if (logError) {
