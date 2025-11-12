@@ -13,7 +13,12 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-app.use(cors());
+app.use(cors({
+    origin: true, // or your specific frontend URL
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Admin-ID', 'admin-id', 'x-admin-id']
+}));
+
 app.use(express.json());
 
 // --- Game Constants (from your old project) ---
