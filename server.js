@@ -47,27 +47,71 @@ app.get('/', (req, res) => res.send('Backend is running and connected to Supabas
 
 
 
-// TEMPORARY ADMIN BYPASS - REPLACE YOUR authenticateAdmin FUNCTION
+// DEBUGGING Admin authentication middleware
 const authenticateAdmin = async (req, res, next) => {
     try {
-        console.log('=== TEMPORARY ADMIN BYPASS ACTIVE ===');
+        console.log('=== ADMIN AUTH DEBUG ===');
+        console.log('Request URL:', req.url);
+        console.log('Request method:', req.method);
 
-        // Hardcode your admin user ID - this will allow any request through
-        const adminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
+        // Log ALL headers to see what's actually being sent
+        console.log('=== ALL REQUEST HEADERS ===');
+        Object.keys(req.headers).forEach(key => {
+            console.log(`Header "${key}":`, req.headers[key]);
+        });
 
-        console.log('Using hardcoded admin ID:', adminId);
+        // Get admin ID from headers
+        let adminId = req.headers['admin-id'] || req.headers['Admin-ID'] || req.headers['admin_id'] || req.body?.admin_id;
 
-        // Just create a mock admin object
-        req.admin = {
-            user_id: adminId,
-            is_active: true
-        };
+        console.log('Extracted adminId:', adminId);
 
-        console.log('✅ Admin access granted via bypass');
+        if (!adminId) {
+            console.log('❌ No admin ID found in headers or body');
+
+            // Test: Try to extract from different header names
+            const possibleHeaders = ['admin-id', 'Admin-ID', 'admin_id', 'Admin_ID', 'x-admin-id'];
+            possibleHeaders.forEach(header => {
+                if (req.headers[header]) {
+                    console.log(`Found in ${header}:`, req.headers[header]);
+                }
+            });
+
+            return res.status(401).json({
+                error: 'Admin ID required',
+                receivedHeaders: Object.keys(req.headers),
+                expectedHeaders: ['admin-id', 'Admin-ID']
+            });
+        }
+
+        // Clean up the adminId
+        adminId = adminId.replace(/['"]/g, '');
+
+        console.log('Checking admin access for:', adminId);
+
+        // Check if user is an active admin
+        const { data: admin, error } = await supabase
+            .from('admin_users')
+            .select('*')
+            .eq('user_id', adminId)
+            .eq('is_active', true)
+            .single();
+
+        if (error) {
+            console.log('❌ Database error:', error);
+            return res.status(403).json({ error: 'Access denied. Database error.' });
+        }
+
+        if (!admin) {
+            console.log('❌ Admin not found or inactive');
+            return res.status(403).json({ error: 'Access denied. Not an admin or account inactive.' });
+        }
+
+        console.log('✅ Admin access granted for:', adminId);
+        req.admin = admin;
         next();
     } catch (error) {
-        console.error('❌ Bypass failed:', error);
-        res.status(500).json({ error: 'Bypass authentication failed' });
+        console.error('❌ Admin authentication failed:', error);
+        res.status(500).json({ error: 'Admin authentication failed' });
     }
 };
 
