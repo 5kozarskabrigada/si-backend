@@ -785,4 +785,78 @@ app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res
     }
 });
 
+
+
+// Debug route to test admin authentication
+app.get('/admin/debug-auth', async (req, res) => {
+    console.log('=== DEBUG AUTH HEADERS ===');
+    console.log('All headers:', req.headers);
+    console.log('Admin-ID header:', req.headers['admin-id']);
+    console.log('Admin-ID header (capital):', req.headers['Admin-ID']);
+
+    // Test if the user exists in admin_users
+    const testAdminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
+    console.log('Testing with admin ID:', testAdminId);
+
+    const { data: admin, error } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('user_id', testAdminId)
+        .eq('is_active', true)
+        .single();
+
+    console.log('Admin query result:', { admin, error });
+
+    res.json({
+        headers: req.headers,
+        adminIdFromHeaders: req.headers['admin-id'] || req.headers['Admin-ID'],
+        testAdminExists: !!admin,
+        testAdminError: error,
+        testAdminData: admin
+    });
+});
+
+// Temporary bypass for testing - REMOVE AFTER FIX
+app.get('/admin/test-stats', async (req, res) => {
+    console.log('=== TEST STATS BYPASS ===');
+
+    // Hardcode your admin user for testing
+    const adminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
+
+    const { data: admin, error } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('user_id', adminId)
+        .eq('is_active', true)
+        .single();
+
+    if (error || !admin) {
+        return res.status(403).json({ error: 'Admin not found in bypass' });
+    }
+
+    // Get stats without authentication
+    const { count: totalUsers } = await supabase
+        .from('players')
+        .select('*', { count: 'exact', head: true });
+
+    const today = new Date().toISOString().split('T')[0];
+    const { count: activeToday } = await supabase
+        .from('players')
+        .select('*', { count: 'exact', head: true })
+        .gte('last_updated', today);
+
+    const { count: bannedUsers } = await supabase
+        .from('players')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_banned', true);
+
+    res.json({
+        totalUsers: totalUsers || 0,
+        activeToday: activeToday || 0,
+        bannedUsers: bannedUsers || 0,
+        totalClicks: 0,
+        message: 'BYPASS MODE - WORKING'
+    });
+});
+
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
