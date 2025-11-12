@@ -45,33 +45,39 @@ const upgrades = {
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
 // Admin authentication middleware
+// FIXED Admin authentication middleware
 const authenticateAdmin = async (req, res, next) => {
     try {
-        const { admin_id } = req.body;
+        // Get admin ID from headers (for GET requests) or body (for POST requests)
+        const adminId = req.headers['admin-id'] || req.body.admin_id;
 
-        if (!admin_id) {
+        if (!adminId) {
             return res.status(401).json({ error: 'Admin ID required' });
         }
+
+        console.log('Checking admin access for:', adminId);
 
         // Check if user is an active admin
         const { data: admin, error } = await supabase
             .from('admin_users')
             .select('*')
-            .eq('user_id', admin_id)
+            .eq('user_id', adminId)
             .eq('is_active', true)
             .single();
 
         if (error || !admin) {
+            console.log('Admin access denied for:', adminId, error);
             return res.status(403).json({ error: 'Access denied. Not an admin.' });
         }
 
+        console.log('Admin access granted for:', adminId);
         req.admin = admin;
         next();
     } catch (error) {
+        console.error('Admin authentication failed:', error);
         res.status(500).json({ error: 'Admin authentication failed' });
     }
 };
-
 
 
 app.get('/player/:userId', async (req, res) => {
