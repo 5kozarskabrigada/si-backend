@@ -595,35 +595,39 @@ app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+ 
 
-// Get admin logs
 app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20 } = req.query;
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
+        console.log('Fetching admin logs...');
+
+        // Simple query without the join for now
         const { data, error, count } = await supabase
             .from('admin_logs')
-            .select(`
-                *,
-                admin_users:admin_id (
-                    username
-                )
-            `, { count: 'exact' })
+            .select('*', { count: 'exact' })
             .range(from, to)
             .order('created_at', { ascending: false });
 
-        if (error) throw error;
+        if (error) {
+            console.error('Error fetching admin logs:', error);
+            throw error;
+        }
+
+        console.log(`Found ${data?.length || 0} admin logs`);
 
         res.json({
-            logs: data,
-            totalCount: count,
-            totalPages: Math.ceil(count / limit),
+            logs: data || [],
+            totalCount: count || 0,
+            totalPages: Math.ceil((count || 0) / limit),
             currentPage: parseInt(page)
         });
 
     } catch (error) {
+        console.error('❌ Error in /admin/admin-logs:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -848,6 +852,51 @@ app.get('/admin/test-stats', async (req, res) => {
         totalClicks: 0,
         message: 'BYPASS MODE - WORKING'
     });
+});
+
+
+// Test admin logs endpoint
+app.get('/admin/test-admin-logs', authenticateAdmin, async (req, res) => {
+    try {
+        console.log('Testing admin logs...');
+
+        // Create a test admin log entry
+        const { error: insertError } = await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: '71bf9556-b67f-4860-8219-270f32ccb89b',
+                action_type: 'test_action',
+                target_user_id: '71bf9556-b67f-4860-8219-270f32ccb89b',
+                details: 'Test admin log entry'
+            });
+
+        if (insertError) {
+            console.error('Error creating test log:', insertError);
+            return res.status(500).json({ error: insertError.message });
+        }
+
+        // Fetch all admin logs
+        const { data, error } = await supabase
+            .from('admin_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (error) {
+            console.error('Error fetching test logs:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.json({
+            message: 'Admin logs test successful',
+            testLogCreated: true,
+            logs: data || []
+        });
+
+    } catch (error) {
+        console.error('❌ Error in test admin logs:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
