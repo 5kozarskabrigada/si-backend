@@ -899,4 +899,167 @@ app.get('/admin/test-admin-logs', authenticateAdmin, async (req, res) => {
     }
 });
 
+
+
+
+// Reset user score
+app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { data, error } = await supabase
+            .from('players')
+            .update({
+                score: 0,
+                last_updated: new Date().toISOString()
+            })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'reset_user_score',
+                target_user_id: userId,
+                details: 'Reset user score to 0'
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add coins to user
+app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { amount } = req.body;
+
+        if (!amount) {
+            return res.status(400).json({ error: 'Amount is required' });
+        }
+
+        // Get current user data
+        const { data: user, error: userError } = await supabase
+            .from('players')
+            .select('score')
+            .eq('user_id', userId)
+            .single();
+
+        if (userError) throw userError;
+
+        const newScore = new Decimal(user.score).plus(new Decimal(amount));
+
+        const { data, error } = await supabase
+            .from('players')
+            .update({
+                score: newScore.toFixed(9),
+                last_updated: new Date().toISOString()
+            })
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'add_coins_to_user',
+                target_user_id: userId,
+                details: `Added ${amount} coins to user`
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Reset user upgrades
+app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const resetData = {
+            click_value: '0.000000001',
+            auto_click_rate: '0.000000001',
+            click_tier_1_level: 0,
+            click_tier_2_level: 0,
+            click_tier_3_level: 0,
+            click_tier_4_level: 0,
+            click_tier_5_level: 0,
+            auto_tier_1_level: 0,
+            auto_tier_2_level: 0,
+            auto_tier_3_level: 0,
+            auto_tier_4_level: 0,
+            auto_tier_5_level: 0,
+            last_updated: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+            .from('players')
+            .update(resetData)
+            .eq('user_id', userId)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'reset_user_upgrades',
+                target_user_id: userId,
+                details: 'Reset all user upgrades to default'
+            });
+
+        res.json({ success: true, user: data });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete user
+app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const { error } = await supabase
+            .from('players')
+            .delete()
+            .eq('user_id', userId);
+
+        if (error) throw error;
+
+        // Log the admin action
+        await supabase
+            .from('admin_logs')
+            .insert({
+                admin_id: req.admin.user_id,
+                action_type: 'delete_user',
+                target_user_id: userId,
+                details: 'User permanently deleted'
+            });
+
+        res.json({ success: true, message: 'User deleted successfully' });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(port, () => console.log(`Backend server is running on port ${port}`));
