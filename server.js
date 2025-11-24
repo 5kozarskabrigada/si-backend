@@ -1,4 +1,3 @@
-// server.js - MERGED AND ENHANCED
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -8,21 +7,18 @@ const { Decimal } = require('decimal.js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- Supabase Setup ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Update your CORS configuration at the top of server.js
 app.use(cors({
-    origin: '*', // Or your specific frontend URL
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Admin-ID', 'admin-id', 'X-Admin-ID']
 }));
 
 app.use(express.json());
 
-// --- Game Constants (from your old project) ---
 const INTRA_TIER_COST_MULTIPLIER = new Decimal(1.215);
 const upgrades = {
     click_tier_1: { id: 'click_tier_1', name: 'A Cups', benefit: new Decimal('0.000000001'), base_cost: new Decimal('0.000000064') },
@@ -31,14 +27,12 @@ const upgrades = {
     click_tier_4: { id: 'click_tier_4', name: 'D Cups', benefit: new Decimal('0.000000512'), base_cost: new Decimal('0.000262144') },
     click_tier_5: { id: 'click_tier_5', name: 'DD Cups', benefit: new Decimal('0.000004096'), base_cost: new Decimal('0.004194304') },
 
-    // AUTO (PER SECOND) UPGRADES
     auto_tier_1: { id: 'auto_tier_1', name: 'Basic Lotion', benefit: new Decimal('0.000000001'), base_cost: new Decimal('0.000000064') },
     auto_tier_2: { id: 'auto_tier_2', name: 'Enhanced Serum', benefit: new Decimal('0.000000008'), base_cost: new Decimal('0.000001024') },
     auto_tier_3: { id: 'auto_tier_3', name: 'Collagen Cream', benefit: new Decimal('0.000000064'), base_cost: new Decimal('0.000016384') },
     auto_tier_4: { id: 'auto_tier_4', name: 'Firming Gel', benefit: new Decimal('0.000000512'), base_cost: new Decimal('0.000262144') },
     auto_tier_5: { id: 'auto_tier_5', name: 'Miracle Elixir', benefit: new Decimal('0.000004096'), base_cost: new Decimal('0.004194304') },
 
-    // OFFLINE UPGRADES
     offline_tier_1: { id: 'offline_tier_1', name: 'Simple Bralette', benefit: new Decimal('0.000000001'), base_cost: new Decimal('0.000000064') },
     offline_tier_2: { id: 'offline_tier_2', name: 'Sports Bra', benefit: new Decimal('0.000000008'), base_cost: new Decimal('0.000001024') },
     offline_tier_3: { id: 'offline_tier_3', name: 'Padded Bra', benefit: new Decimal('0.000000064'), base_cost: new Decimal('0.000016384') },
@@ -47,23 +41,14 @@ const upgrades = {
 
 };
 
-// --- API Endpoints ---
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
-
-
-
-// WORKING ADMIN BYPASS - USE THIS
 const authenticateAdmin = async (req, res, next) => {
     try {
         console.log('=== ADMIN BYPASS ACTIVE ===');
-
-        // Hardcode your admin user ID
         const adminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
-
         console.log('Using admin ID:', adminId);
 
-        // Verify the admin exists in database (for security)
         const { data: admin, error } = await supabase
             .from('admin_users')
             .select('*')
@@ -85,21 +70,16 @@ const authenticateAdmin = async (req, res, next) => {
     }
 };
 
-
-
 app.get('/player/:userId', async (req, res) => {
     const { userId } = req.params;
-
     try {
-        // Try to get the player
         let { data: player, error } = await supabase
             .from('players')
             .select('*')
             .eq('user_id', userId)
             .single();
 
-        if (error && error.code === 'PGRST116') { // No rows found
-            // Create a new player with default values
+        if (error && error.code === 'PGRST116') {
             const { data: newPlayer, error: insertError } = await supabase
                 .from('players')
                 .insert({
@@ -111,14 +91,12 @@ app.get('/player/:userId', async (req, res) => {
                 })
                 .select()
                 .single();
-
             if (insertError) throw insertError;
             player = newPlayer;
         } else if (error) {
             throw error;
         }
 
-        // Calculate offline earnings if needed
         const now = new Date();
         const lastUpdated = new Date(player.last_updated);
         const timeOfflineSeconds = (now - lastUpdated) / 1000;
@@ -130,7 +108,6 @@ app.get('/player/:userId', async (req, res) => {
 
             player.score = new Decimal(player.score).plus(offlineEarnings).toFixed(9);
 
-            // Update the last_updated timestamp
             await supabase
                 .from('players')
                 .update({
@@ -175,9 +152,7 @@ app.post('/player/syncProfile', async (req, res) => {
     }
 });
 
-
 app.post('/player/sync', async (req, res) => {
-    // This endpoint is also fine.
     const { userId, score } = req.body;
     if (!userId || typeof score === 'undefined') return res.status(400).json({ error: 'Missing userId or score' });
     const { error } = await supabase.from('players').update({ score, last_updated: new Date().toISOString() }).eq('user_id', userId);
@@ -185,7 +160,6 @@ app.post('/player/sync', async (req, res) => {
     res.json({ success: true });
 });
 
-// --- NEW UPGRADE ENDPOINT ---
 app.post('/player/upgrade', async (req, res) => {
     const { userId, upgradeId } = req.body;
     if (!userId || !upgradeId) return res.status(400).json({ error: 'Missing userId or upgradeId' });
@@ -194,7 +168,6 @@ app.post('/player/upgrade', async (req, res) => {
     if (!upgrade) return res.status(404).json({ error: 'Upgrade not found' });
 
     try {
-        // 1. Fetch the latest player data
         const { data: player, error: fetchError } = await supabase.from('players').select('*').eq('user_id', userId).single();
         if (fetchError || !player) throw new Error('Player not found.');
 
@@ -202,15 +175,12 @@ app.post('/player/upgrade', async (req, res) => {
         const levelColumn = `${upgradeId}_level`;
         const currentLevel = new Decimal(player[levelColumn] || 0);
 
-        // 2. Calculate the cost of the next level
         const cost = upgrade.base_cost.times(INTRA_TIER_COST_MULTIPLIER.pow(currentLevel));
 
-        // 3. Check if the player has enough score
         if (playerScore.lessThan(cost)) {
             return res.status(400).json({ error: 'Not enough coins.' });
         }
 
-        // 4. Prepare the data to be updated
         const newScore = playerScore.minus(cost);
         const newLevel = currentLevel.plus(1);
 
@@ -220,7 +190,6 @@ app.post('/player/upgrade', async (req, res) => {
             last_updated: new Date().toISOString()
         };
 
-        // 5. Update click value or auto-click rate based on the upgrade type
         if (upgradeId.startsWith('click_')) {
             const newClickValue = new Decimal(player.click_value).plus(upgrade.benefit);
             updates.click_value = newClickValue.toFixed(9);
@@ -229,7 +198,6 @@ app.post('/player/upgrade', async (req, res) => {
             updates.auto_click_rate = newAutoClickRate.toFixed(9);
         }
 
-        // 6. Push the updates to Supabase
         const { data: updatedPlayer, error: updateError } = await supabase
             .from('players')
             .update(updates)
@@ -249,8 +217,6 @@ app.post('/player/upgrade', async (req, res) => {
                 action_type: 'upgrade_purchase',
                 details: `Purchased ${upgradeId} for ${cost}`
             });
-
-
     } catch (error) {
         console.error(`Upgrade error for user ${userId}, upgrade ${upgradeId}:`, error);
         res.status(500).json({ error: 'Failed to purchase upgrade.' });
@@ -273,15 +239,12 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
             .limit(10);
 
         if (error) throw error;
-
         res.json(data);
     } catch (error) {
         console.error(`Error fetching leaderboard for ${sortBy}:`, error);
         res.status(500).json({ error: 'Failed to fetch leaderboard data.' });
     }
 });
-
-
 
 app.get('/wallet/history/:userId', async (req, res) => {
     const { userId } = req.params;
@@ -290,19 +253,15 @@ app.get('/wallet/history/:userId', async (req, res) => {
     }
 
     try {
-        // Find transactions where the current user was either the sender OR the receiver
         const { data, error } = await supabase
             .from('transactions')
             .select('*')
-            .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`) // This finds ALL transactions for the user
+            .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
             .order('created_at', { ascending: false })
-            .limit(50); // Get the 50 most recent transactions
+            .limit(50);
 
-        if (error) {
-            throw error;
-        }
+        if (error) throw error;
 
-        // We will add a 'type' to each transaction to make it easy for the frontend
         const processedData = data.map(tx => ({
             ...tx,
             type: Number(tx.sender_id) === Number(userId) ? 'sent' : 'received'
@@ -316,31 +275,18 @@ app.get('/wallet/history/:userId', async (req, res) => {
     }
 });
 
-
-
 app.post('/tasks/claim', async (req, res) => {
-    const { userId, taskId, isAchievement } = req.body;
-
+    // REMOVED: Unused player fetch logic since it wasn't connected to anything
     try {
-        // Verify task completion and update player score
-        const { data: player } = await supabase.from('players').select('*').eq('user_id', userId).single();
-
-        // This would need to sync with the client-side task progress
-        // For simplicity, we're handling most logic client-side
-
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-
-
 });
-
 
 app.post('/wallet/transfer', async (req, res) => {
     const { senderId, receiverUsername, amount } = req.body;
 
-    // 1. --- Input Validation ---
     if (!senderId || !receiverUsername || !amount) {
         return res.status(400).json({ error: 'Invalid input. Missing fields.' });
     }
@@ -350,7 +296,6 @@ app.post('/wallet/transfer', async (req, res) => {
     }
 
     try {
-        // 2. --- Find the Receiver ---
         const { data: receiver, error: receiverError } = await supabase
             .from('players')
             .select('user_id, score')
@@ -362,12 +307,10 @@ app.post('/wallet/transfer', async (req, res) => {
         }
         const receiverId = receiver.user_id;
 
-        // Prevent users from sending to themselves
         if (Number(senderId) === Number(receiverId)) {
             throw new Error("You cannot send coins to yourself.");
         }
 
-        // 3. --- Find the Sender and Check Balance ---
         const { data: sender, error: senderError } = await supabase
             .from('players')
             .select('score')
@@ -382,11 +325,9 @@ app.post('/wallet/transfer', async (req, res) => {
             throw new Error("Insufficient funds.");
         }
 
-        // 4. --- Perform the Transaction ---
         const newSenderScore = senderBalance.minus(transferAmount);
         const newReceiverScore = new Decimal(receiver.score).plus(transferAmount);
 
-        // Debit the sender
         const { error: updateSenderError } = await supabase
             .from('players')
             .update({ score: newSenderScore.toFixed(9) })
@@ -394,19 +335,16 @@ app.post('/wallet/transfer', async (req, res) => {
 
         if (updateSenderError) throw new Error('Failed to update sender balance.');
 
-        // Credit the receiver
         const { error: updateReceiverError } = await supabase
             .from('players')
             .update({ score: newReceiverScore.toFixed(9) })
             .eq('user_id', receiverId);
 
         if (updateReceiverError) {
-            // CRITICAL: If this fails, we must refund the sender!
             await supabase.from('players').update({ score: senderBalance.toFixed(9) }).eq('user_id', senderId);
             throw new Error('Failed to update receiver balance. Transfer has been cancelled and refunded.');
         }
 
-        // 5. --- Log the Transaction ---
         const { error: logError } = await supabase
             .from('transactions')
             .insert({
@@ -417,26 +355,17 @@ app.post('/wallet/transfer', async (req, res) => {
             });
 
         if (logError) {
-            // The transfer succeeded but logging failed. Log an error on the backend.
             console.error("CRITICAL: Transaction succeeded but logging failed!", logError);
         }
 
-        // 6. --- Success ---
         res.json({ success: true, message: 'Transfer successful!' });
 
     } catch (error) {
-        // This will catch any errors thrown above (user not found, insufficient funds, etc.)
         console.error('Transfer failed:', error.message);
         return res.status(500).json({ error: error.message || 'An unknown error occurred during the transfer.' });
     }
-
-
-    
 });
 
-
-
-// Get all users with pagination and search
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20, search = '' } = req.query;
@@ -448,13 +377,11 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
             .select('*', { count: 'exact' })
             .range(from, to);
 
-        // Apply search if provided
         if (search) {
             query = query.or(`username.ilike.%${search}%,user_id.eq.${search}`);
         }
 
         const { data, error, count } = await query;
-
         if (error) throw error;
 
         res.json({
@@ -463,13 +390,11 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
             totalPages: Math.ceil(count / limit),
             currentPage: parseInt(page)
         });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Update user data
 app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
@@ -484,7 +409,6 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -495,17 +419,14 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Ban user
 app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { data, error } = await supabase
             .from('players')
             .update({ is_banned: true })
@@ -515,7 +436,6 @@ app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -526,17 +446,14 @@ app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Unban user
 app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { data, error } = await supabase
             .from('players')
             .update({ is_banned: false })
@@ -546,7 +463,6 @@ app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -557,13 +473,11 @@ app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Get user logs
 app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20, userId } = req.query;
@@ -581,7 +495,6 @@ app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
         }
 
         const { data, error, count } = await query;
-
         if (error) throw error;
 
         res.json({
@@ -590,12 +503,10 @@ app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
             totalPages: Math.ceil(count / limit),
             currentPage: parseInt(page)
         });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
- 
 
 app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
     try {
@@ -604,8 +515,6 @@ app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
         const to = from + limit - 1;
 
         console.log('Fetching admin logs...');
-
-        // Simple query without the join for now
         const { data, error, count } = await supabase
             .from('admin_logs')
             .select('*', { count: 'exact' })
@@ -617,62 +526,43 @@ app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
             throw error;
         }
 
-        console.log(`Found ${data?.length || 0} admin logs`);
-
         res.json({
             logs: data || [],
             totalCount: count || 0,
             totalPages: Math.ceil((count || 0) / limit),
             currentPage: parseInt(page)
         });
-
     } catch (error) {
         console.error('❌ Error in /admin/admin-logs:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Get dashboard stats
-// Get dashboard stats
 app.get('/admin/stats', authenticateAdmin, async (req, res) => {
     try {
         console.log('=== ADMIN STATS REQUEST ===');
         console.log('Admin making request:', req.admin.user_id);
 
-        // Total users
         const { count: totalUsers, error: totalUsersError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true });
 
-        if (totalUsersError) {
-            console.log('❌ Total users error:', totalUsersError);
-            throw totalUsersError;
-        }
+        if (totalUsersError) throw totalUsersError;
 
-        // Active today
         const today = new Date().toISOString().split('T')[0];
         const { count: activeToday, error: activeTodayError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true })
             .gte('last_updated', today);
 
-        if (activeTodayError) {
-            console.log('❌ Active today error:', activeTodayError);
-            throw activeTodayError;
-        }
+        if (activeTodayError) throw activeTodayError;
 
-        // Banned users
         const { count: bannedUsers, error: bannedUsersError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true })
             .eq('is_banned', true);
 
-        if (bannedUsersError) {
-            console.log('❌ Banned users error:', bannedUsersError);
-            throw bannedUsersError;
-        }
-
-        console.log('✅ Stats retrieved:', { totalUsers, activeToday, bannedUsers });
+        if (bannedUsersError) throw bannedUsersError;
 
         res.json({
             totalUsers: totalUsers || 0,
@@ -680,15 +570,12 @@ app.get('/admin/stats', authenticateAdmin, async (req, res) => {
             bannedUsers: bannedUsers || 0,
             totalClicks: 0
         });
-
     } catch (error) {
         console.error('❌ Error in /admin/stats:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-
-// Get transactions for admin panel
 app.get('/admin/transactions', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20 } = req.query;
@@ -715,11 +602,9 @@ app.get('/admin/transactions', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Make user admin
 app.post('/admin/users/:userId/make-admin', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { data, error } = await supabase
             .from('admin_users')
             .insert({
@@ -732,7 +617,6 @@ app.post('/admin/users/:userId/make-admin', authenticateAdmin, async (req, res) 
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -743,17 +627,14 @@ app.post('/admin/users/:userId/make-admin', authenticateAdmin, async (req, res) 
             });
 
         res.json({ success: true, admin: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Remove admin privileges
 app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { data, error } = await supabase
             .from('admin_users')
             .update({ is_active: false })
@@ -763,7 +644,6 @@ app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -774,139 +654,16 @@ app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res
             });
 
         res.json({ success: true, admin: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
+// REMOVED: /admin/debug-auth, /admin/test-stats, /admin/test-admin-logs (Dead/Test code)
 
-
-// Debug route to test admin authentication
-app.get('/admin/debug-auth', async (req, res) => {
-    console.log('=== DEBUG AUTH HEADERS ===');
-    console.log('All headers:', req.headers);
-    console.log('Admin-ID header:', req.headers['admin-id']);
-    console.log('Admin-ID header (capital):', req.headers['Admin-ID']);
-
-    // Test if the user exists in admin_users
-    const testAdminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
-    console.log('Testing with admin ID:', testAdminId);
-
-    const { data: admin, error } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('user_id', testAdminId)
-        .eq('is_active', true)
-        .single();
-
-    console.log('Admin query result:', { admin, error });
-
-    res.json({
-        headers: req.headers,
-        adminIdFromHeaders: req.headers['admin-id'] || req.headers['Admin-ID'],
-        testAdminExists: !!admin,
-        testAdminError: error,
-        testAdminData: admin
-    });
-});
-
-// Temporary bypass for testing - REMOVE AFTER FIX
-app.get('/admin/test-stats', async (req, res) => {
-    console.log('=== TEST STATS BYPASS ===');
-
-    // Hardcode your admin user for testing
-    const adminId = '71bf9556-b67f-4860-8219-270f32ccb89b';
-
-    const { data: admin, error } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('user_id', adminId)
-        .eq('is_active', true)
-        .single();
-
-    if (error || !admin) {
-        return res.status(403).json({ error: 'Admin not found in bypass' });
-    }
-
-    // Get stats without authentication
-    const { count: totalUsers } = await supabase
-        .from('players')
-        .select('*', { count: 'exact', head: true });
-
-    const today = new Date().toISOString().split('T')[0];
-    const { count: activeToday } = await supabase
-        .from('players')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_updated', today);
-
-    const { count: bannedUsers } = await supabase
-        .from('players')
-        .select('*', { count: 'exact', head: true })
-        .eq('is_banned', true);
-
-    res.json({
-        totalUsers: totalUsers || 0,
-        activeToday: activeToday || 0,
-        bannedUsers: bannedUsers || 0,
-        totalClicks: 0,
-        message: 'BYPASS MODE - WORKING'
-    });
-});
-
-
-// Test admin logs endpoint
-app.get('/admin/test-admin-logs', authenticateAdmin, async (req, res) => {
-    try {
-        console.log('Testing admin logs...');
-
-        // Create a test admin log entry
-        const { error: insertError } = await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: '71bf9556-b67f-4860-8219-270f32ccb89b',
-                action_type: 'test_action',
-                target_user_id: '71bf9556-b67f-4860-8219-270f32ccb89b',
-                details: 'Test admin log entry'
-            });
-
-        if (insertError) {
-            console.error('Error creating test log:', insertError);
-            return res.status(500).json({ error: insertError.message });
-        }
-
-        // Fetch all admin logs
-        const { data, error } = await supabase
-            .from('admin_logs')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-        if (error) {
-            console.error('Error fetching test logs:', error);
-            return res.status(500).json({ error: error.message });
-        }
-
-        res.json({
-            message: 'Admin logs test successful',
-            testLogCreated: true,
-            logs: data || []
-        });
-
-    } catch (error) {
-        console.error('❌ Error in test admin logs:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-
-
-
-// Reset user score
 app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { data, error } = await supabase
             .from('players')
             .update({
@@ -919,7 +676,6 @@ app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res)
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -930,13 +686,11 @@ app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res)
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Add coins to user
 app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
@@ -946,7 +700,6 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
             return res.status(400).json({ error: 'Amount is required' });
         }
 
-        // Get current user data
         const { data: user, error: userError } = await supabase
             .from('players')
             .select('score')
@@ -969,7 +722,6 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -980,17 +732,14 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Reset user upgrades
 app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const resetData = {
             click_value: '0.000000001',
             auto_click_rate: '0.000000001',
@@ -1016,7 +765,6 @@ app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, r
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -1027,17 +775,14 @@ app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, r
             });
 
         res.json({ success: true, user: data });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-// Delete user
 app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-
         const { error } = await supabase
             .from('players')
             .delete()
@@ -1045,7 +790,6 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // Log the admin action
         await supabase
             .from('admin_logs')
             .insert({
@@ -1056,7 +800,6 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
             });
 
         res.json({ success: true, message: 'User deleted successfully' });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
