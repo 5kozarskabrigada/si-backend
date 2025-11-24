@@ -400,26 +400,65 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
         const { userId } = req.params;
         const updates = req.body;
 
+        console.log(`ATTEMPTING UPDATE FOR: ${userId}`);
+
+        // 1. Update the Player
         const { data, error } = await supabase
             .from('players')
-            .update(updates)
+            .update({
+                score: updates.score,
+                click_value: updates.click_value,
+                auto_click_rate: updates.auto_click_rate,
+                last_updated: new Date().toISOString(),
+                // Add upgrade levels here if you are sending them
+                click_tier_1_level: updates.click_tier_1_level,
+                click_tier_2_level: updates.click_tier_2_level,
+                click_tier_3_level: updates.click_tier_3_level,
+                click_tier_4_level: updates.click_tier_4_level,
+                click_tier_5_level: updates.click_tier_5_level,
+
+                auto_tier_1_level: updates.auto_tier_1_level,
+                auto_tier_2_level: updates.auto_tier_2_level,
+                auto_tier_3_level: updates.auto_tier_3_level,
+                auto_tier_4_level: updates.auto_tier_4_level,
+                auto_tier_5_level: updates.auto_tier_5_level,
+
+
+                
+                // ... map other levels ...
+            })
             .eq('user_id', userId)
             .select()
-            .single();
+            .single(); // .single() FORCES an error if 0 rows are found
 
-        if (error) throw error;
+        // 2. Catch Supabase Errors
+        if (error) {
+            console.error("SUPABASE DB ERROR:", error);
+            throw error;
+        }
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'update_user',
-                target_user_id: userId,
-                details: `Updated user data: ${JSON.stringify(updates)}`
-            });
+        // 3. Catch Silent Failures (No data returned means no row updated)
+        if (!data) {
+            console.error("NO DATA RETURNED. User ID might not exist or RLS blocked it.");
+            return res.status(404).json({ error: "User not found or Update blocked" });
+        }
+
+        console.log("UPDATE SUCCESSFUL:", data);
+
+        // 4. Write Log
+        const { error: logError } = await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'update_user',
+            target_user_id: userId,
+            details: `Updated score to ${updates.score}`
+        });
+
+        if (logError) console.error("LOG ERROR:", logError);
 
         res.json({ success: true, user: data });
+
     } catch (error) {
+        console.error("CRITICAL SERVER ERROR:", error.message);
         res.status(500).json({ error: error.message });
     }
 });
