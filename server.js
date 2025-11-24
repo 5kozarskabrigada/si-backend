@@ -514,17 +514,13 @@ app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
-        console.log('Fetching admin logs...');
         const { data, error, count } = await supabase
             .from('admin_logs')
             .select('*', { count: 'exact' })
             .range(from, to)
             .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error('Error fetching admin logs:', error);
-            throw error;
-        }
+        if (error) throw error;
 
         res.json({
             logs: data || [],
@@ -533,42 +529,106 @@ app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
             currentPage: parseInt(page)
         });
     } catch (error) {
-        console.error('❌ Error in /admin/admin-logs:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+app.get('/admin/combined-activity', authenticateAdmin, async (req, res) => {
+    try {
+        const { data: adminLogs } = await supabase
+            .from('admin_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(15);
+
+        const { data: userLogs } = await supabase
+            .from('user_logs')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(15);
+
+        let combined = [];
+
+        if (adminLogs) {
+            combined = combined.concat(adminLogs.map(log => ({
+                source: 'ADMIN',
+                actor: log.admin_id,
+                action: log.action_type,
+                details: log.details,
+                time: log.created_at
+            })));
+        }
+
+        if (userLogs) {
+            combined = combined.concat(userLogs.map(log => ({
+                source: 'USER',
+                actor: log.username || `ID: ${log.user_id}`,
+                action: log.action_type,
+                details: log.details,
+                time: log.created_at
+            })));
+        }
+
+        combined.sort((a, b) => new Date(b.time) - new Date(a.time));
+
+        res.json({ logs: combined.slice(0, 20) });
+
+    } catch (error) {
+        console.error('Error fetching combined activity:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 app.get('/admin/stats', authenticateAdmin, async (req, res) => {
     try {
         console.log('=== ADMIN STATS REQUEST ===');
-        console.log('Admin making request:', req.admin.user_id);
 
-        const { count: totalUsers, error: totalUsersError } = await supabase
+        
+        const { count: totalUsers, error: usersError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true });
+        if (usersError) throw usersError;
 
-        if (totalUsersError) throw totalUsersError;
-
+        
         const today = new Date().toISOString().split('T')[0];
-        const { count: activeToday, error: activeTodayError } = await supabase
+        const { count: activeToday, error: activeError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true })
             .gte('last_updated', today);
+        if (activeError) throw activeError;
 
-        if (activeTodayError) throw activeTodayError;
-
-        const { count: bannedUsers, error: bannedUsersError } = await supabase
+        
+        const { count: bannedUsers, error: bannedError } = await supabase
             .from('players')
             .select('*', { count: 'exact', head: true })
             .eq('is_banned', true);
+        if (bannedError) throw bannedError;
 
-        if (bannedUsersError) throw bannedUsersError;
+        
+        const { count: totalTransactions, error: txError } = await supabase
+            .from('transactions')
+            .select('*', { count: 'exact', head: true });
+        if (txError) throw txError;
+
+        const { data: allScores, error: scoreError } = await supabase
+            .from('players')
+            .select('score');
+
+        let totalCoins = new Decimal(0);
+        if (!scoreError && allScores) {
+            allScores.forEach(p => {
+                totalCoins = totalCoins.plus(new Decimal(p.score || 0));
+            });
+        }
 
         res.json({
             totalUsers: totalUsers || 0,
             activeToday: activeToday || 0,
             bannedUsers: bannedUsers || 0,
-            totalClicks: 0
+            totalTransactions: totalTransactions || 0,
+            totalCoins: totalCoins.toFixed(2),
+            totalClicks: 0 
         });
     } catch (error) {
         console.error('❌ Error in /admin/stats:', error);
