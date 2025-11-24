@@ -535,18 +535,21 @@ app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/combined-activity', authenticateAdmin, async (req, res) => {
     try {
+        
         const { data: adminLogs } = await supabase
             .from('admin_logs')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(15);
+            .limit(10);
 
+            
         const { data: userLogs } = await supabase
             .from('user_logs')
             .select('*')
             .order('created_at', { ascending: false })
-            .limit(15);
+            .limit(10);
 
+            
         let combined = [];
 
         if (adminLogs) {
@@ -562,19 +565,18 @@ app.get('/admin/combined-activity', authenticateAdmin, async (req, res) => {
         if (userLogs) {
             combined = combined.concat(userLogs.map(log => ({
                 source: 'USER',
-                actor: log.username || `ID: ${log.user_id}`,
+                actor: log.username || `User ${log.user_id}`,
                 action: log.action_type,
                 details: log.details,
                 time: log.created_at
             })));
         }
 
+        
         combined.sort((a, b) => new Date(b.time) - new Date(a.time));
 
-        res.json({ logs: combined.slice(0, 20) });
-
+        res.json({ logs: combined.slice(0, 15) });
     } catch (error) {
-        console.error('Error fetching combined activity:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -584,54 +586,29 @@ app.get('/admin/stats', authenticateAdmin, async (req, res) => {
     try {
         console.log('=== ADMIN STATS REQUEST ===');
 
-        
-        const { count: totalUsers, error: usersError } = await supabase
-            .from('players')
-            .select('*', { count: 'exact', head: true });
-        if (usersError) throw usersError;
+        const { count: totalUsers } = await supabase.from('players').select('*', { count: 'exact', head: true });
 
-        
         const today = new Date().toISOString().split('T')[0];
-        const { count: activeToday, error: activeError } = await supabase
-            .from('players')
-            .select('*', { count: 'exact', head: true })
-            .gte('last_updated', today);
-        if (activeError) throw activeError;
+        const { count: activeToday } = await supabase.from('players').select('*', { count: 'exact', head: true }).gte('last_updated', today);
+        const { count: bannedUsers } = await supabase.from('players').select('*', { count: 'exact', head: true }).eq('is_banned', true);
+        const { count: totalTransactions } = await supabase.from('transactions').select('*', { count: 'exact', head: true });
 
-        
-        const { count: bannedUsers, error: bannedError } = await supabase
-            .from('players')
-            .select('*', { count: 'exact', head: true })
-            .eq('is_banned', true);
-        if (bannedError) throw bannedError;
-
-        
-        const { count: totalTransactions, error: txError } = await supabase
-            .from('transactions')
-            .select('*', { count: 'exact', head: true });
-        if (txError) throw txError;
-
-        const { data: allScores, error: scoreError } = await supabase
-            .from('players')
-            .select('score');
-
+        const { data: players } = await supabase.from('players').select('score');
         let totalCoins = new Decimal(0);
-        if (!scoreError && allScores) {
-            allScores.forEach(p => {
-                totalCoins = totalCoins.plus(new Decimal(p.score || 0));
-            });
+        if (players) {
+            players.forEach(p => totalCoins = totalCoins.plus(new Decimal(p.score || 0)));
         }
 
         res.json({
             totalUsers: totalUsers || 0,
             activeToday: activeToday || 0,
             bannedUsers: bannedUsers || 0,
-            totalTransactions: totalTransactions || 0,
+            totalTransactions: totalTransactions || 0, 
             totalCoins: totalCoins.toFixed(2),
-            totalClicks: 0 
+            totalClicks: 0
         });
-    } catch (error) {
-        console.error('❌ Error in /admin/stats:', error);
+    } 
+    catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
