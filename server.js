@@ -427,6 +427,7 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
 app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
+
         const { data, error } = await supabase
             .from('players')
             .update({ is_banned: true })
@@ -436,16 +437,15 @@ app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'ban_user',
-                target_user_id: userId,
-                details: 'User banned'
-            });
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'ban_user',
+            target_user_id: userId,
+            details: 'Banned user from the platform'
+        });
 
         res.json({ success: true, user: data });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -454,6 +454,7 @@ app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
 app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
+
         const { data, error } = await supabase
             .from('players')
             .update({ is_banned: false })
@@ -463,16 +464,15 @@ app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'unban_user',
-                target_user_id: userId,
-                details: 'User unbanned'
-            });
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'unban_user',
+            target_user_id: userId,
+            details: 'Restored user access'
+        });
 
         res.json({ success: true, user: data });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -659,35 +659,23 @@ app.post('/admin/users/:userId/remove-admin', authenticateAdmin, async (req, res
     }
 });
 
-// REMOVED: /admin/debug-auth, /admin/test-stats, /admin/test-admin-logs (Dead/Test code)
 
 app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-        const { data, error } = await supabase
-            .from('players')
-            .update({
-                score: 0,
-                last_updated: new Date().toISOString()
-            })
-            .eq('user_id', userId)
-            .select()
-            .single();
 
-        if (error) throw error;
+        await supabase.from('players').update({ score: 0 }).eq('user_id', userId);
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'reset_user_score',
-                target_user_id: userId,
-                details: 'Reset user score to 0'
-            });
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'reset_score',
+            target_user_id: userId,
+            details: 'Score reset to 0'
+        });
 
-        res.json({ success: true, user: data });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
@@ -696,42 +684,29 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
         const { userId } = req.params;
         const { amount } = req.body;
 
-        if (!amount) {
-            return res.status(400).json({ error: 'Amount is required' });
-        }
+        
+        const { data: user } = await supabase.from('players').select('score').eq('user_id', userId).single();
+        const newScore = new Decimal(user.score).plus(new Decimal(amount)).toFixed(9);
 
-        const { data: user, error: userError } = await supabase
+        const { data: updatedUser, error } = await supabase
             .from('players')
-            .select('score')
-            .eq('user_id', userId)
-            .single();
-
-        if (userError) throw userError;
-
-        const newScore = new Decimal(user.score).plus(new Decimal(amount));
-
-        const { data, error } = await supabase
-            .from('players')
-            .update({
-                score: newScore.toFixed(9),
-                last_updated: new Date().toISOString()
-            })
+            .update({ score: newScore, last_updated: new Date().toISOString() })
             .eq('user_id', userId)
             .select()
             .single();
 
         if (error) throw error;
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'add_coins_to_user',
-                target_user_id: userId,
-                details: `Added ${amount} coins to user`
-            });
+       
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'add_coins', 
+            target_user_id: userId,
+            details: `Added ${amount} coins. Old: ${user.score}, New: ${newScore}`
+        });
 
-        res.json({ success: true, user: data });
+        res.json({ success: true, user: updatedUser });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -740,6 +715,7 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
 app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
+
         const resetData = {
             click_value: '0.000000001',
             auto_click_rate: '0.000000001',
@@ -765,16 +741,15 @@ app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, r
 
         if (error) throw error;
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'reset_user_upgrades',
-                target_user_id: userId,
-                details: 'Reset all user upgrades to default'
-            });
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'reset_upgrades',
+            target_user_id: userId,
+            details: 'Reset all upgrades and multipliers to default'
+        });
 
         res.json({ success: true, user: data });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -783,6 +758,9 @@ app.post('/admin/users/:userId/reset-upgrades', authenticateAdmin, async (req, r
 app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
+        const { data: user } = await supabase.from('players').select('username').eq('user_id', userId).single();
+        const username = user ? user.username : 'Unknown';
+
         const { error } = await supabase
             .from('players')
             .delete()
@@ -790,16 +768,15 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        await supabase
-            .from('admin_logs')
-            .insert({
-                admin_id: req.admin.user_id,
-                action_type: 'delete_user',
-                target_user_id: userId,
-                details: 'User permanently deleted'
-            });
+        await supabase.from('admin_logs').insert({
+            admin_id: req.admin.user_id,
+            action_type: 'delete_user',
+            target_user_id: userId,
+            details: `Permanently deleted user: ${username}`
+        });
 
         res.json({ success: true, message: 'User deleted successfully' });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
