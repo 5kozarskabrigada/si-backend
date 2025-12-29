@@ -378,6 +378,7 @@ app.get('/games/state/:userId', async (req, res) => {
             .single();
         
         if (error && error.code === 'PGRST116') {
+         
             res.json({
                 solo: {
                     pot: '0',
