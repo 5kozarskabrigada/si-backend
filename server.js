@@ -276,7 +276,6 @@ app.get('/wallet/history/:userId', async (req, res) => {
 });
 
 app.post('/tasks/claim', async (req, res) => {
-    // REMOVED: Unused player fetch logic since it wasn't connected to anything
     try {
         res.json({ success: true });
     } catch (error) {
@@ -363,6 +362,97 @@ app.post('/wallet/transfer', async (req, res) => {
     } catch (error) {
         console.error('Transfer failed:', error.message);
         return res.status(500).json({ error: error.message || 'An unknown error occurred during the transfer.' });
+    }
+});
+
+
+
+app.get('/games/state/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        const { data: gameState, error } = await supabase
+            .from('game_state')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+        
+        if (error && error.code === 'PGRST116') {
+            res.json({
+                solo: {
+                    pot: '0',
+                    participants: [],
+                    endTime: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+                    isActive: true
+                },
+                team: {
+                    teams: [],
+                    pot: '0',
+                    endTime: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+                    isActive: true
+                },
+                recentWinners: [],
+                yourBets: {
+                    solo: '0',
+                    team: null
+                }
+            });
+        } else if (error) {
+            throw error;
+        } else {
+            res.json(gameState.state);
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/games/save', async (req, res) => {
+    try {
+        const { userId, gameState: state } = req.body;
+        
+        const { error } = await supabase
+            .from('game_state')
+            .upsert({
+                user_id: userId,
+                state: state,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+        
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/player/add-coins', async (req, res) => {
+    try {
+        const { userId, amount } = req.body;
+        
+        const { data: player } = await supabase
+            .from('players')
+            .select('score')
+            .eq('user_id', userId)
+            .single();
+        
+        if (!player) throw new Error('Player not found');
+        
+        const newScore = new Decimal(player.score).plus(new Decimal(amount));
+        
+        const { error } = await supabase
+            .from('players')
+            .update({ 
+                score: newScore.toFixed(9),
+                last_updated: new Date().toISOString()
+            })
+            .eq('user_id', userId);
+        
+        if (error) throw error;
+        
+        res.json({ success: true, newScore: newScore.toFixed(9) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -469,7 +559,6 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
         const { userId } = req.params;
         const updates = req.body;
 
-        // 1. Update User
         const { data, error } = await supabase
             .from('players')
             .update(updates)
@@ -479,8 +568,6 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        // 2. Insert Log (With detailed Error Logging)
-        // Ensure admin_id is a string. If req.admin.user_id is missing, use 'system'
         const adminId = req.admin ? String(req.admin.user_id) : 'system';
 
         const { error: logError } = await supabase.from('admin_logs').insert({
@@ -492,7 +579,6 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
 
         if (logError) {
             console.error("CRITICAL: Failed to write admin log:", logError);
-            // We don't stop the request, but we log the error to your terminal
         } else {
             console.log("Log successfully written to database.");
         }
