@@ -689,16 +689,20 @@ app.post('/games/withdraw-solo', async (req, res) => {
     }
 
     const oldPot = safeDecimal(solo.pot || 0);
-    const newPot = oldPot.minus(bet).max(0);
+    let newPot = oldPot.minus(bet);
+    if (newPot.isNegative()) newPot = new Decimal(0);
     solo.pot = newPot.toFixed(9);
+
     solo.participants.splice(idx, 1);
 
     state.solo = solo;
     state.yourBets = state.yourBets || { solo: '0', team: null };
 
     const currentUserBet = safeDecimal(state.yourBets.solo || 0);
-    const newUserBet = currentUserBet.minus(bet).max(0);
+    let newUserBet = currentUserBet.minus(bet);
+    if (newUserBet.isNegative()) newUserBet = new Decimal(0);
     state.yourBets.solo = newUserBet.toFixed(9);
+
 
 
     const { data: player, error: playerErr } = await supabase
