@@ -253,7 +253,7 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('players')
-      .select('username, profile_photo_url, score, click_value, auto_click_rate')
+      .select('username, first_name, last_name, profile_photo_url, score, click_value, auto_click_rate')
       .order(sortBy, { ascending: false })
       .limit(10);
 
