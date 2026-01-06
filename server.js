@@ -454,10 +454,11 @@ app.post('/games/join-solo', async (req, res) => {
     }
 
     const { data: player, error: playerError } = await supabase
-      .from('players')
-      .select('score, username')
-      .eq('user_id', userId)
-      .single();
+    .from('players')
+    .select('score, username, first_name, last_name, profile_photo_url')
+    .eq('user_id', userId)
+    .single();
+
     if (playerError || !player) throw new Error('Player not found');
 
     const balance = safeDecimal(player.score);
@@ -466,10 +467,11 @@ app.post('/games/join-solo', async (req, res) => {
     }
 
     const { data: gameRow, error: gameError } = await supabase
-      .from('game_state')
-      .select('*')
-      .eq('user_id', userId)
-      .single();
+    .from('game_state')
+    .select('*')
+    .eq('id', 'global') 
+    .single();
+
     let state;
     if (gameError && gameError.code === 'PGRST116') {
       state = defaultGameState();
@@ -497,14 +499,23 @@ app.post('/games/join-solo', async (req, res) => {
     solo.participants = solo.participants || [];
     const idx = solo.participants.findIndex(p => String(p.userId) === String(userId));
     if (idx >= 0) {
-      const prev = safeDecimal(solo.participants[idx].bet);
-      solo.participants[idx].bet = prev.plus(bet).toFixed(9);
+    const prev = safeDecimal(solo.participants[idx].bet);
+    solo.participants[idx].bet = prev.plus(bet).toFixed(9);
+    solo.participants[idx].username = player.username || null;
+    solo.participants[idx].first_name = player.first_name || null;
+    solo.participants[idx].last_name = player.last_name || null;
+    solo.participants[idx].profile_photo_url = player.profile_photo_url || null;
     } else {
-      solo.participants.push({
+    solo.participants.push({
         userId,
-        username: player.username || 'Anonymous',
+        username: player.username || null,
+        first_name: player.first_name || null,
+        last_name: player.last_name || null,
+        profile_photo_url: player.profile_photo_url || null,
         bet: bet.toFixed(9),
-      });
+    });
+
+
     }
 
     if (solo.participants.length >= SOLO_MIN_PLAYERS) {
@@ -617,10 +628,11 @@ app.post('/games/draw-solo', async (req, res) => {
     const prizeAfterFee = totalPot.minus(fee);
 
     const { data: winPlayer, error: winErr } = await supabase
-      .from('players')
-      .select('score, username')
-      .eq('user_id', winner.userId)
-      .single();
+    .from('players')
+    .select('score, username, first_name, last_name, profile_photo_url')
+    .eq('user_id', winner.userId)
+    .single();
+
     if (winErr || !winPlayer) throw new Error('Winner not found');
 
     const newScore = safeDecimal(winPlayer.score).plus(prizeAfterFee);
@@ -643,14 +655,19 @@ app.post('/games/draw-solo', async (req, res) => {
 
     state.recentWinners = state.recentWinners || [];
     state.recentWinners.unshift({
-      game: 'solo',
-      username: winPlayer.username || winner.username || 'Anonymous',
-      amount: prizeAfterFee.toFixed(9),
-      date: new Date().toISOString(),
+    game: 'solo',
+    userId: winner.userId,
+    username: winPlayer.username || winner.username || null,
+    first_name: winPlayer.first_name || null,
+    last_name: winPlayer.last_name || null,
+    profile_photo_url: winPlayer.profile_photo_url || null,
+    amount: prizeAfterFee.toFixed(9),
+    date: new Date().toISOString(),
     });
     if (state.recentWinners.length > 10) {
-      state.recentWinners = state.recentWinners.slice(0, 10);
+    state.recentWinners = state.recentWinners.slice(0, 10);
     }
+
 
     state.solo = defaultGameState().solo;
     await saveUserGameState(userId, state);
@@ -761,7 +778,7 @@ app.post('/games/team/join', async (req, res) => {
 
     const { data: player, error: playerError } = await supabase
       .from('players')
-      .select('score, username')
+      .select('score, username, first_name, last_name')
       .eq('user_id', userId)
       .single();
     if (playerError || !player) throw new Error('Player not found');
@@ -857,7 +874,7 @@ app.post('/games/team/create', async (req, res) => {
 
     const { data: player, error: playerError } = await supabase
       .from('players')
-      .select('score, username')
+      .select('score, username, first_name, last_name')
       .eq('user_id', userId)
       .single();
     if (playerError || !player) throw new Error('Player not found');
@@ -994,7 +1011,7 @@ app.post('/games/team/draw', async (req, res) => {
 
       const { data: pl } = await supabase
         .from('players')
-        .select('score, username')
+        .select('score, username, first_name, last_name')
         .eq('user_id', member.userId)
         .single();
       if (!pl) continue;
