@@ -7,6 +7,7 @@ const { Decimal } = require('decimal.js');
 const app = express();
 const port = process.env.PORT || 3000;
 
+const SOLO_BET_CUTOFF_MS = 20 * 1000; 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -479,6 +480,18 @@ app.post('/games/join-solo', async (req, res) => {
     }
 
     const solo = state.solo || defaultGameState().solo;
+
+
+    if (solo.isActive && solo.endTime) {
+    const now = new Date();
+    const end = new Date(solo.endTime);
+    const msLeft = end - now;
+
+    if (msLeft <= SOLO_BET_CUTOFF_MS) {
+        return res.status(400).json({ error: 'Betting closed for this round' });
+    }
+    }
+
     solo.pot = safeDecimal(solo.pot).plus(bet).toFixed(9);
 
     solo.participants = solo.participants || [];
