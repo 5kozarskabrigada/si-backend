@@ -552,7 +552,7 @@ app.post('/games/draw-solo', async (req, res) => {
 
     const participants = solo.participants || [];
     if (participants.length < SOLO_MIN_PLAYERS) {
-      // Refund all bets
+
       for (const p of participants) {
         const bet = safeDecimal(p.bet);
         if (bet.lte(0)) continue;
@@ -652,6 +652,86 @@ app.post('/games/draw-solo', async (req, res) => {
     res.status(500).json({ error: e.message || 'Draw failed' });
   }
 });
+
+
+app.post('/games/withdraw-solo', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+
+    const { data: gameRow, error: gameError } = await supabase
+      .from('game_state')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (gameError && gameError.code === 'PGRST116') {
+      return res.status(400).json({ error: 'No game state to withdraw from' });
+    } else if (gameError) {
+      throw gameError;
+    }
+
+    const state = gameRow.state || defaultGameState();
+    const solo = state.solo || defaultGameState().solo;
+
+    if (solo.isActive) {
+      return res.status(400).json({ error: 'Game already started, cannot withdraw' });
+    }
+
+    const idx = (solo.participants || []).findIndex(p => String(p.userId) === String(userId));
+    if (idx === -1) {
+      return res.status(400).json({ error: 'You have no active bet to withdraw' });
+    }
+
+    const bet = safeDecimal(solo.participants[idx].bet || 0);
+    if (bet.lte(0)) {
+      return res.status(400).json({ error: 'Nothing to withdraw' });
+    }
+
+    const oldPot = safeDecimal(solo.pot || 0);
+    const newPot = oldPot.minus(bet).max(0);
+    solo.pot = newPot.toFixed(9);
+    solo.participants.splice(idx, 1);
+
+    state.solo = solo;
+    state.yourBets = state.yourBets || { solo: '0', team: null };
+
+    const currentUserBet = safeDecimal(state.yourBets.solo || 0);
+    const newUserBet = currentUserBet.minus(bet).max(0);
+    state.yourBets.solo = newUserBet.toFixed(9);
+
+
+    const { data: player, error: playerErr } = await supabase
+      .from('players')
+      .select('score')
+      .eq('user_id', userId)
+      .single();
+    if (playerErr || !player) throw new Error('Player not found');
+
+    const newScore = safeDecimal(player.score).plus(bet);
+
+    await supabase
+      .from('players')
+      .update({
+        score: newScore.toFixed(9),
+        last_updated: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+
+    await saveUserGameState(userId, state);
+
+    return res.json({
+      success: true,
+      state,
+      newBalance: newScore.toFixed(9),
+    });
+  } catch (e) {
+    console.error('withdraw-solo failed', e);
+    res.status(500).json({ error: e.message || 'Withdraw failed' });
+  }
+});
+
+
 
 // ---------- TEAM lottery ----------
 app.post('/games/team/join', async (req, res) => {
