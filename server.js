@@ -19,7 +19,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ---------- Constants / helpers ----------
+
 const INTRA_TIER_COST_MULTIPLIER = new Decimal(1.215);
 const SOLO_MIN_PLAYERS = 2;
 const SOLO_DURATION_MS = 5 * 60 * 1000;
@@ -56,7 +56,6 @@ function safeDecimal(v) {
 
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
-// ---------- Admin auth ----------
 const authenticateAdmin = (req, res, next) => {
   const token = req.headers['x-admin-secret'];       
   const expected = process.env.ADMIN_SECRET;
@@ -68,7 +67,7 @@ const authenticateAdmin = (req, res, next) => {
   req.admin = { user_id: 'admin-panel' };
   next();
 };
-// ---------- Player ----------
+
 app.get('/player/:userId', async (req, res) => {
   const { userId } = req.params;
   try {
@@ -164,7 +163,7 @@ app.post('/player/sync', async (req, res) => {
   res.json({ success: true });
 });
 
-// ---------- Upgrades ----------
+
 app.post('/player/upgrade', async (req, res) => {
   try {
     const { userId, upgradeId } = req.body;
@@ -235,7 +234,7 @@ app.post('/player/upgrade', async (req, res) => {
 });
 
 
-// ---------- Leaderboard ----------
+
 app.get('/leaderboard/:sortBy', async (req, res) => {
   const { sortBy } = req.params;
   const validSorts = ['score', 'click_value', 'auto_click_rate'];
@@ -259,7 +258,7 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
   }
 });
 
-// ---------- Wallet ----------
+
 app.get('/wallet/history/:userId', async (req, res) => {
   const { userId } = req.params;
   if (!userId) {
@@ -369,7 +368,7 @@ app.post('/wallet/transfer', async (req, res) => {
   }
 });
 
-// ---------- Tasks (backend stub, rewards handled client-side) ----------
+
 app.post('/tasks/claim', async (req, res) => {
   try {
     res.json({ success: true });
@@ -378,7 +377,7 @@ app.post('/tasks/claim', async (req, res) => {
   }
 });
 
-// ---------- Game state helper ----------
+
 function defaultGameState() {
   return {
     solo: {
@@ -415,7 +414,7 @@ async function saveUserGameState(userId, state) {
   if (error) throw error;
 }
 
-// ---------- Games: get state ----------
+
 app.get('/games/state/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -438,7 +437,7 @@ app.get('/games/state/:userId', async (req, res) => {
   }
 });
 
-// ---------- SOLO lottery ----------
+
 app.post('/games/join-solo', async (req, res) => {
   try {
     const { userId, betAmount } = req.body;
@@ -761,7 +760,6 @@ app.post('/games/withdraw-solo', async (req, res) => {
 
 
 
-// ---------- TEAM lottery ----------
 app.post('/games/team/join', async (req, res) => {
   try {
     const { userId, teamId, betAmount } = req.body;
@@ -1050,7 +1048,7 @@ app.post('/games/team/draw', async (req, res) => {
   }
 });
 
-// ---------- Extra player utility ----------
+
 app.post('/player/add-coins', async (req, res) => {
   try {
     const { userId, amount } = req.body;
@@ -1081,7 +1079,7 @@ app.post('/player/add-coins', async (req, res) => {
   }
 });
 
-// ---------- Admin endpoints ----------
+
 
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
@@ -1113,7 +1111,6 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
 });
 
 
-// ---------- Admin: update user ----------
 app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
