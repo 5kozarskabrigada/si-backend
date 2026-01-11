@@ -57,30 +57,17 @@ function safeDecimal(v) {
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
 // ---------- Admin auth ----------
-const authenticateAdmin = async (req, res, next) => {
-  try {
-    console.log('=== ADMIN BYPASS ACTIVE ===');
-    const adminId = '71bf9556-b67f-4860-8219-270f32ccb89b'; // TODO: change/remove in prod
+const authenticateAdmin = (req, res, next) => {
+  const token = req.headers['x-admin-secret'];       
+  const expected = process.env.ADMIN_SECRET;
 
-    const { data: admin, error } = await supabase
-      .from('admin_users')
-      .select('*')
-      .eq('user_id', adminId)
-      .eq('is_active', true)
-      .single();
-
-    if (error || !admin) {
-      return res.status(403).json({ error: 'Admin access denied' });
-    }
-
-    req.admin = admin;
-    next();
-  } catch (error) {
-    console.error('Admin auth failed:', error);
-    res.status(500).json({ error: 'Admin authentication failed' });
+  if (!expected || token !== expected) {
+    return res.status(403).json({ error: 'Forbidden' });
   }
-};
 
+  req.admin = { user_id: 'admin-panel' };
+  next();
+};
 // ---------- Player ----------
 app.get('/player/:userId', async (req, res) => {
   const { userId } = req.params;
@@ -177,14 +164,20 @@ app.post('/player/sync', async (req, res) => {
   res.json({ success: true });
 });
 
+// ---------- Upgrades ----------
 app.post('/player/upgrade', async (req, res) => {
-  const { userId, upgradeId } = req.body;
-  if (!userId || !upgradeId) return res.status(400).json({ error: 'Missing userId or upgradeId' });
-
-  const upgrade = upgrades[upgradeId];
-  if (!upgrade) return res.status(404).json({ error: 'Upgrade not found' });
-
   try {
+    const { userId, upgradeId } = req.body;
+
+    if (!userId || !upgradeId) {
+      return res.status(400).json({ success: false, error: 'Missing userId or upgradeId.' });
+    }
+
+    const upgrade = upgradesConfig[upgradeId]; 
+    if (!upgrade) {
+      return res.status(400).json({ success: false, error: 'Invalid upgrade.' });
+    }
+
     const { data: player, error: fetchError } = await supabase
       .from('players')
       .select('*')
@@ -198,7 +191,7 @@ app.post('/player/upgrade', async (req, res) => {
 
     const cost = upgrade.base_cost.times(INTRA_TIER_COST_MULTIPLIER.pow(currentLevel));
     if (playerScore.lessThan(cost)) {
-      return res.status(400).json({ error: 'Not enough coins.' });
+      return res.status(400).json({ success: false, error: 'Not enough coins.' });
     }
 
     const newScore = playerScore.minus(cost);
@@ -236,10 +229,11 @@ app.post('/player/upgrade', async (req, res) => {
       details: `Purchased ${upgradeId} for ${cost}`,
     });
   } catch (error) {
-    console.error(`Upgrade error for user ${userId}, upgrade ${upgradeId}:`, error);
-    res.status(500).json({ error: 'Failed to purchase upgrade.' });
+    console.error(`Upgrade error:`, error);
+    res.status(500).json({ success: false, error: 'Failed to purchase upgrade.' });
   }
 });
+
 
 // ---------- Leaderboard ----------
 app.get('/leaderboard/:sortBy', async (req, res) => {
@@ -1088,6 +1082,7 @@ app.post('/player/add-coins', async (req, res) => {
 });
 
 // ---------- Admin endpoints ----------
+
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 20, search = '' } = req.query;
@@ -1117,6 +1112,8 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
   }
 });
 
+
+// ---------- Admin: update user ----------
 app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1137,7 +1134,7 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
       admin_id: adminId,
       action_type: 'update_user',
       target_user_id: String(userId),
-      details: `Updated score to ${updates.score}`,
+      details: `Updated player: ${JSON.stringify(updates)}`,
     });
 
     if (logError) {
@@ -1150,6 +1147,7 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
   try {
