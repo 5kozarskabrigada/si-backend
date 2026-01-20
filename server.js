@@ -433,20 +433,22 @@ function defaultGameState() {
   };
 }
 
+
 async function saveUserGameState(userId, state) {
   const { error } = await supabase
     .from('game_state')
     .upsert(
       {
-        id: 'global',
+        user_id: 'global',
         state,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'id' },
+      { onConflict: 'user_id' },
     );
 
   if (error) throw error;
 }
+
 
 app.get('/games/state/:userId', requireUser, async (req, res) => {
   try {
@@ -455,7 +457,7 @@ app.get('/games/state/:userId', requireUser, async (req, res) => {
     const { data: gameRow, error } = await supabase
       .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     if (error && error.code === 'PGRST116') {
@@ -469,6 +471,7 @@ app.get('/games/state/:userId', requireUser, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
+
 
 
 app.post('/games/join-solo', requireUser, async (req, res) => {
@@ -495,9 +498,9 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
     }
 
     const { data: gameRow, error: gameError } = await supabase
-      .from('game_state')              // fixed table name
+      .from('game_state') 
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     let state;
@@ -582,9 +585,9 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error } = await supabase
-      .from('game_state')      // fixed table name
+      .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     if (error) throw error;
@@ -722,11 +725,11 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
     const { data: gameRow, error } = await supabase
       .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     if (error && error.code === 'PGRST116') {
-      // no state yet
+
       return res.status(400).json({ error: 'No active solo bet to withdraw' });
     } else if (error) {
       throw error;
@@ -823,7 +826,7 @@ app.post('/games/team/join', requireUser, async (req, res) => {
     const { data: gameRow, error: gameError } = await supabase
       .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     let state;
@@ -926,7 +929,7 @@ app.post('/games/team/create', requireUser, async (req, res) => {
     const { data: gameRow, error: gameError } = await supabase
       .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     let state;
@@ -1006,7 +1009,7 @@ app.post('/games/team/draw', requireUser, async (req, res) => {
     const { data: gameRow, error } = await supabase
       .from('game_state')
       .select('*')
-      .eq('id', 'global')
+      .eq('user_id', 'global')
       .single();
 
     if (error) throw error;
@@ -1132,7 +1135,12 @@ app.post('/games/team/draw', requireUser, async (req, res) => {
 
 app.post('/player/add-coins', requireUser, async (req, res) => {
   try {
-    const { userId, amount } = req.userId;
+    const userId = req.userId;
+    const { amount } = req.body;
+
+    if (!userId || !amount) {
+      return res.status(400).json({ error: 'Missing userId or amount' });
+    }
 
     const { data: player } = await supabase
       .from('players')
@@ -1159,6 +1167,7 @@ app.post('/player/add-coins', requireUser, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 
 
