@@ -54,6 +54,18 @@ function safeDecimal(v) {
   }
 }
 
+
+function requireUser(req, res, next) {
+  const userId = req.headers['x-user-id'];
+  if (!userId) {
+    return res.status(401).json({ error: 'Missing user identity' });
+  }
+  req.userId = String(userId);
+  next();
+}
+
+
+
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
 const authenticateAdmin = (req, res, next) => {
@@ -68,8 +80,8 @@ const authenticateAdmin = (req, res, next) => {
   next();
 };
 
-app.get('/player/:userId', async (req, res) => {
-  const { userId } = req.params;
+app.get("/player/:userId", requireUser, async (req, res) => {
+  const userId = req.userId;
   try {
     let { data: player, error } = await supabase
       .from('players')
@@ -125,8 +137,11 @@ app.get('/player/:userId', async (req, res) => {
   }
 });
 
-app.post('/player/syncProfile', async (req, res) => {
-  const { user_id, username, first_name, last_name, language_code, photo_url } = req.body;
+
+app.post('/player/syncProfile', requireUser, async (req, res) => {
+  const user_id = req.userId;
+  const { username, first_name, last_name, language_code, photo_url } = req.body;
+
   if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
 
   try {
@@ -150,23 +165,30 @@ app.post('/player/syncProfile', async (req, res) => {
   }
 });
 
-app.post('/player/sync', async (req, res) => {
-  const { userId, score } = req.body;
+
+app.post('/player/sync', requireUser, async (req, res) => {
+  const userId = req.userId;
+  const { score } = req.body;
+
   if (!userId || typeof score === 'undefined') {
     return res.status(400).json({ error: 'Missing userId or score' });
   }
+
   const { error } = await supabase
     .from('players')
     .update({ score, last_updated: new Date().toISOString() })
     .eq('user_id', userId);
+
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
 
 
-app.post('/player/upgrade', async (req, res) => {
+
+app.post('/player/upgrade', requireUser, async (req, res) => {
   try {
-    const { userId, upgradeId } = req.body;
+    const userId = req.userId;
+    const { upgradeId } = req.body;
 
     if (!userId || !upgradeId) {
       return res.status(400).json({ success: false, error: 'Missing userId or upgradeId.' });
@@ -259,8 +281,8 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
 });
 
 
-app.get('/wallet/history/:userId', async (req, res) => {
-  const { userId } = req.params;
+app.get('/wallet/history/:userId', requireUser, async (req, res) => {
+  const userId = req.userId;
   if (!userId) {
     return res.status(400).json({ error: 'Missing userId' });
   }
@@ -287,12 +309,14 @@ app.get('/wallet/history/:userId', async (req, res) => {
   }
 });
 
-app.post('/wallet/transfer', async (req, res) => {
-  const { senderId, receiverUsername, amount } = req.body;
+app.post('/wallet/transfer', requireUser, async (req, res) => {
+  const senderId = req.userId;
+  const { receiverUsername, amount } = req.body;
 
   if (!senderId || !receiverUsername || !amount) {
     return res.status(400).json({ error: 'Invalid input. Missing fields.' });
   }
+
   const transferAmount = new Decimal(amount);
   if (transferAmount.isNegative() || transferAmount.isZero() || !transferAmount.isFinite()) {
     return res.status(400).json({ error: 'Invalid transfer amount.' });
@@ -369,6 +393,7 @@ app.post('/wallet/transfer', async (req, res) => {
 });
 
 
+
 app.post('/tasks/claim', async (req, res) => {
   try {
     res.json({ success: true });
@@ -402,45 +427,47 @@ function defaultGameState() {
 
 async function saveUserGameState(userId, state) {
   const { error } = await supabase
-    .from('game_state')
+    .from("gamestate")
     .upsert(
       {
-        user_id: userId,
+        id: "global",
         state,
-        updated_at: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       },
-      { onConflict: 'user_id' },
+      { onConflict: "id" }
     );
+
   if (error) throw error;
 }
 
 
-app.get('/games/state/:userId', async (req, res) => {
+app.get("/games/state/:userId", requireUser, async (req, res) => {
   try {
-    const { userId } = req.params;
+    const userId = req.userId;
 
-    const { data: gameState, error } = await supabase
-      .from('game_state')
-      .select('*')
-      .eq('user_id', userId)
+    const { data: gameRow, error } = await supabase
+      .from("gamestate")
+      .select("*")
+      .eq("id", "global")
       .single();
 
-    if (error && error.code === 'PGRST116') {
+    if (error && error.code === "PGRST116") {
       return res.json(defaultGameState());
     } else if (error) {
       throw error;
-    } else {
-      return res.json(gameState.state);
     }
+
+    return res.json(gameRow.state || defaultGameState());
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 });
 
 
-app.post('/games/join-solo', async (req, res) => {
+
+app.post('/games/join-solo', requireUser, async (req, res) => {
   try {
-    const { userId, betAmount } = req.body;
+    const { userId, betAmount } = req.userId;
     const bet = safeDecimal(betAmount);
     if (!userId || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid userId or bet amount' });
@@ -543,9 +570,9 @@ app.post('/games/join-solo', async (req, res) => {
   }
 });
 
-app.post('/games/draw-solo', async (req, res) => {
+app.post('/games/draw-solo', requireUser, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId } = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error } = await supabase
@@ -677,9 +704,9 @@ app.post('/games/draw-solo', async (req, res) => {
 });
 
 
-app.post('/games/withdraw-solo', async (req, res) => {
+app.post('/games/withdraw-solo', requireUser, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId } = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error: gameError } = await supabase
@@ -760,9 +787,9 @@ app.post('/games/withdraw-solo', async (req, res) => {
 
 
 
-app.post('/games/team/join', async (req, res) => {
+app.post('/games/team/join', requireUser, async (req, res) => {
   try {
-    const { userId, teamId, betAmount } = req.body;
+    const { userId, teamId, betAmount } = req.userId;
     const bet = safeDecimal(betAmount);
     if (!userId || !teamId || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid input' });
@@ -853,9 +880,9 @@ app.post('/games/team/join', async (req, res) => {
   }
 });
 
-app.post('/games/team/create', async (req, res) => {
+app.post('/games/team/create', requireUser, async (req, res) => {
   try {
-    const { userId, teamName, betAmount } = req.body;
+    const { userId, teamName, betAmount } = req.userId;
     const bet = safeDecimal(betAmount);
     if (!userId || !teamName || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid input' });
@@ -933,9 +960,9 @@ app.post('/games/team/create', async (req, res) => {
   }
 });
 
-app.post('/games/team/draw', async (req, res) => {
+app.post('/games/team/draw', requireUser, async (req, res) => {
   try {
-    const { userId } = req.body;
+    const { userId } = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error } = await supabase
@@ -1049,9 +1076,9 @@ app.post('/games/team/draw', async (req, res) => {
 });
 
 
-app.post('/player/add-coins', async (req, res) => {
+app.post('/player/add-coins', requireUser, async (req, res) => {
   try {
-    const { userId, amount } = req.body;
+    const { userId, amount } = req.userId;
 
     const { data: player } = await supabase
       .from('players')
@@ -1545,6 +1572,7 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}`);
