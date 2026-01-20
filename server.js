@@ -435,31 +435,30 @@ function defaultGameState() {
 
 async function saveUserGameState(userId, state) {
   const { error } = await supabase
-    .from("gamestate")
+    .from('game_state')
     .upsert(
       {
-        id: "global",
+        id: 'global',
         state,
-        updatedAt: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" }
+      { onConflict: 'id' },
     );
 
   if (error) throw error;
 }
 
-
-app.get("/games/state/:userId", requireUser, async (req, res) => {
+app.get('/games/state/:userId', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
 
     const { data: gameRow, error } = await supabase
-      .from("gamestate")
-      .select("*")
-      .eq("id", "global")
+      .from('game_state')
+      .select('*')
+      .eq('id', 'global')
       .single();
 
-    if (error && error.code === "PGRST116") {
+    if (error && error.code === 'PGRST116') {
       return res.json(defaultGameState());
     } else if (error) {
       throw error;
@@ -472,20 +471,21 @@ app.get("/games/state/:userId", requireUser, async (req, res) => {
 });
 
 
-
 app.post('/games/join-solo', requireUser, async (req, res) => {
   try {
-    const { userId, betAmount } = req.userId;
+    const userId = req.userId;
+    const { betAmount } = req.body;
     const bet = safeDecimal(betAmount);
+
     if (!userId || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid userId or bet amount' });
     }
 
     const { data: player, error: playerError } = await supabase
-    .from('players')
-    .select('score, username, first_name, last_name, profile_photo_url')
-    .eq('user_id', userId)
-    .single();
+      .from('players')
+      .select('score, username, first_name, last_name, profile_photo_url')
+      .eq('user_id', userId)
+      .single();
 
     if (playerError || !player) throw new Error('Player not found');
 
@@ -495,10 +495,10 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
     }
 
     const { data: gameRow, error: gameError } = await supabase
-    .from('game_state')
-    .select('*')
-    .eq('id', 'global') 
-    .single();
+      .from('game_state')              // fixed table name
+      .select('*')
+      .eq('id', 'global')
+      .single();
 
     let state;
     if (gameError && gameError.code === 'PGRST116') {
@@ -511,15 +511,14 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
 
     const solo = state.solo || defaultGameState().solo;
 
-
     if (solo.isActive && solo.endTime) {
-    const now = new Date();
-    const end = new Date(solo.endTime);
-    const msLeft = end - now;
+      const now = new Date();
+      const end = new Date(solo.endTime);
+      const msLeft = end - now;
 
-    if (msLeft <= SOLO_BET_CUTOFF_MS) {
+      if (msLeft <= SOLO_BET_CUTOFF_MS) {
         return res.status(400).json({ error: 'Betting closed for this round' });
-    }
+      }
     }
 
     solo.pot = safeDecimal(solo.pot).plus(bet).toFixed(9);
@@ -527,23 +526,21 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
     solo.participants = solo.participants || [];
     const idx = solo.participants.findIndex(p => String(p.userId) === String(userId));
     if (idx >= 0) {
-    const prev = safeDecimal(solo.participants[idx].bet);
-    solo.participants[idx].bet = prev.plus(bet).toFixed(9);
-    solo.participants[idx].username = player.username || null;
-    solo.participants[idx].first_name = player.first_name || null;
-    solo.participants[idx].last_name = player.last_name || null;
-    solo.participants[idx].profile_photo_url = player.profile_photo_url || null;
+      const prev = safeDecimal(solo.participants[idx].bet);
+      solo.participants[idx].bet = prev.plus(bet).toFixed(9);
+      solo.participants[idx].username = player.username || null;
+      solo.participants[idx].first_name = player.first_name || null;
+      solo.participants[idx].last_name = player.last_name || null;
+      solo.participants[idx].profile_photo_url = player.profile_photo_url || null;
     } else {
-    solo.participants.push({
+      solo.participants.push({
         userId,
         username: player.username || null,
         first_name: player.first_name || null,
         last_name: player.last_name || null,
         profile_photo_url: player.profile_photo_url || null,
         bet: bet.toFixed(9),
-    });
-
-
+      });
     }
 
     if (solo.participants.length >= SOLO_MIN_PLAYERS) {
@@ -578,16 +575,18 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
   }
 });
 
+
 app.post('/games/draw-solo', requireUser, async (req, res) => {
   try {
-    const { userId } = req.userId;
+    const userId = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error } = await supabase
-      .from('game_state')
+      .from('game_state')      // fixed table name
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', 'global')
       .single();
+
     if (error) throw error;
 
     const state = gameRow.state || defaultGameState();
@@ -604,16 +603,18 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 
     const participants = solo.participants || [];
     if (participants.length < SOLO_MIN_PLAYERS) {
-
+      // refund all bets
       for (const p of participants) {
         const bet = safeDecimal(p.bet);
         if (bet.lte(0)) continue;
+
         const { data: pl } = await supabase
           .from('players')
           .select('score')
           .eq('user_id', p.userId)
           .single();
         if (!pl) continue;
+
         const newScore = safeDecimal(pl.score).plus(bet);
         await supabase
           .from('players')
@@ -636,6 +637,7 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
       return res.json({ success: true, winner: null, prize: '0' });
     }
 
+    // weighted random by bet
     let totalBet = new Decimal(0);
     participants.forEach(p => {
       totalBet = totalBet.plus(safeDecimal(p.bet));
@@ -656,10 +658,10 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
     const prizeAfterFee = totalPot.minus(fee);
 
     const { data: winPlayer, error: winErr } = await supabase
-    .from('players')
-    .select('score, username, first_name, last_name, profile_photo_url')
-    .eq('user_id', winner.userId)
-    .single();
+      .from('players')
+      .select('score, username, first_name, last_name, profile_photo_url')
+      .eq('user_id', winner.userId)
+      .single();
 
     if (winErr || !winPlayer) throw new Error('Winner not found');
 
@@ -683,19 +685,18 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 
     state.recentWinners = state.recentWinners || [];
     state.recentWinners.unshift({
-    game: 'solo',
-    userId: winner.userId,
-    username: winPlayer.username || winner.username || null,
-    first_name: winPlayer.first_name || null,
-    last_name: winPlayer.last_name || null,
-    profile_photo_url: winPlayer.profile_photo_url || null,
-    amount: prizeAfterFee.toFixed(9),
-    date: new Date().toISOString(),
+      game: 'solo',
+      userId: winner.userId,
+      username: winPlayer.username || winner.username || null,
+      first_name: winPlayer.first_name || null,
+      last_name: winPlayer.last_name || null,
+      profile_photo_url: winPlayer.profile_photo_url || null,
+      amount: prizeAfterFee.toFixed(9),
+      date: new Date().toISOString(),
     });
     if (state.recentWinners.length > 10) {
-    state.recentWinners = state.recentWinners.slice(0, 10);
+      state.recentWinners = state.recentWinners.slice(0, 10);
     }
-
 
     state.solo = defaultGameState().solo;
     await saveUserGameState(userId, state);
@@ -712,66 +713,49 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 });
 
 
+
 app.post('/games/withdraw-solo', requireUser, async (req, res) => {
   try {
-    const { userId } = req.userId;
+    const userId = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
-    const { data: gameRow, error: gameError } = await supabase
+    const { data: gameRow, error } = await supabase
       .from('game_state')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', 'global')
       .single();
 
-    if (gameError && gameError.code === 'PGRST116') {
-      return res.status(400).json({ error: 'No game state to withdraw from' });
-    } else if (gameError) {
-      throw gameError;
+    if (error && error.code === 'PGRST116') {
+      // no state yet
+      return res.status(400).json({ error: 'No active solo bet to withdraw' });
+    } else if (error) {
+      throw error;
     }
 
     const state = gameRow.state || defaultGameState();
     const solo = state.solo || defaultGameState().solo;
 
-    if (solo.isActive) {
-      return res.status(400).json({ error: 'Game already started, cannot withdraw' });
+    const participants = solo.participants || [];
+    const idx = participants.findIndex(p => String(p.userId) === String(userId));
+    if (idx < 0) {
+      return res.status(400).json({ error: 'No active solo bet to withdraw' });
     }
 
-    const idx = (solo.participants || []).findIndex(p => String(p.userId) === String(userId));
-    if (idx === -1) {
-      return res.status(400).json({ error: 'You have no active bet to withdraw' });
-    }
-
-    const bet = safeDecimal(solo.participants[idx].bet || 0);
+    const bet = safeDecimal(participants[idx].bet);
     if (bet.lte(0)) {
       return res.status(400).json({ error: 'Nothing to withdraw' });
     }
 
-    const oldPot = safeDecimal(solo.pot || 0);
-    let newPot = oldPot.minus(bet);
-    if (newPot.isNegative()) newPot = new Decimal(0);
-    solo.pot = newPot.toFixed(9);
 
-    solo.participants.splice(idx, 1);
-
-    state.solo = solo;
-    state.yourBets = state.yourBets || { solo: '0', team: null };
-
-    const currentUserBet = safeDecimal(state.yourBets.solo || 0);
-    let newUserBet = currentUserBet.minus(bet);
-    if (newUserBet.isNegative()) newUserBet = new Decimal(0);
-    state.yourBets.solo = newUserBet.toFixed(9);
-
-
-
-    const { data: player, error: playerErr } = await supabase
+    const { data: player, error: playerError } = await supabase
       .from('players')
       .select('score')
       .eq('user_id', userId)
       .single();
-    if (playerErr || !player) throw new Error('Player not found');
+
+    if (playerError || !player) throw new Error('Player not found');
 
     const newScore = safeDecimal(player.score).plus(bet);
-
     await supabase
       .from('players')
       .update({
@@ -780,12 +764,29 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
       })
       .eq('user_id', userId);
 
+
+    solo.pot = safeDecimal(solo.pot).minus(bet).toFixed(9);
+    participants.splice(idx, 1);
+    solo.participants = participants;
+
+    if (participants.length >= SOLO_MIN_PLAYERS) {
+
+    } else {
+      solo.isActive = false;
+      solo.endTime = null;
+    }
+
+    state.solo = solo;
+    state.yourBets = state.yourBets || { solo: '0', team: null };
+    state.yourBets.solo = safeDecimal(state.yourBets.solo).minus(bet).toFixed(9);
+
     await saveUserGameState(userId, state);
 
-    return res.json({
+    res.json({
       success: true,
-      state,
+      refunded: bet.toFixed(9),
       newBalance: newScore.toFixed(9),
+      state,
     });
   } catch (e) {
     console.error('withdraw-solo failed', e);
@@ -795,9 +796,12 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
 
 
 
+
 app.post('/games/team/join', requireUser, async (req, res) => {
   try {
-    const { userId, teamId, betAmount } = req.userId;
+    const userId = req.userId;
+    const { teamId, betAmount } = req.body;
+
     const bet = safeDecimal(betAmount);
     if (!userId || !teamId || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid input' });
@@ -805,19 +809,23 @@ app.post('/games/team/join', requireUser, async (req, res) => {
 
     const { data: player, error: playerError } = await supabase
       .from('players')
-      .select('score, username, first_name, last_name')
+      .select('score, username, first_name, last_name, profile_photo_url')
       .eq('user_id', userId)
       .single();
+
     if (playerError || !player) throw new Error('Player not found');
 
     const balance = safeDecimal(player.score);
-    if (balance.lt(bet)) return res.status(400).json({ error: 'Insufficient funds' });
+    if (balance.lt(bet)) {
+      return res.status(400).json({ error: 'Insufficient funds' });
+    }
 
     const { data: gameRow, error: gameError } = await supabase
       .from('game_state')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', 'global')
       .single();
+
     let state;
     if (gameError && gameError.code === 'PGRST116') {
       state = defaultGameState();
@@ -830,40 +838,43 @@ app.post('/games/team/join', requireUser, async (req, res) => {
     const teamState = state.team || defaultGameState().team;
     teamState.teams = teamState.teams || [];
 
-    let team = teamState.teams.find(t => t.id === teamId);
+    const team = teamState.teams.find(t => t.id === teamId);
     if (!team) {
       return res.status(400).json({ error: 'Team not found' });
     }
 
-    if ((team.members || []).length >= 10) {
-      return res.status(400).json({ error: 'Team is full' });
-    }
-
-    const currentTeamId = state.yourBets?.team || null;
-    if (currentTeamId && currentTeamId !== teamId) {
-      return res.status(400).json({ error: 'You are already in another team' });
-    }
-
     team.members = team.members || [];
-    const memberIndex = team.members.findIndex(m => m.userId === userId);
-    if (memberIndex >= 0) {
-      const prev = safeDecimal(team.members[memberIndex].bet);
-      team.members[memberIndex].bet = prev.plus(bet).toFixed(9);
+    const idx = team.members.findIndex(m => String(m.userId) === String(userId));
+
+    if (idx >= 0) {
+      const prev = safeDecimal(team.members[idx].bet);
+      team.members[idx].bet = prev.plus(bet).toFixed(9);
     } else {
       team.members.push({
         userId,
-        username: player.username || 'Anonymous',
+        username: player.username || null,
+        first_name: player.first_name || null,
+        last_name: player.last_name || null,
+        profile_photo_url: player.profile_photo_url || null,
         bet: bet.toFixed(9),
       });
     }
 
-    const total = team.members.reduce((sum, m) => sum.plus(safeDecimal(m.bet)), new Decimal(0));
-    team.total = total.toFixed(9);
+    team.totalBet = safeDecimal(team.totalBet || 0).plus(bet).toFixed(9);
 
     teamState.pot = safeDecimal(teamState.pot).plus(bet).toFixed(9);
+    teamState.isActive = true;
+    if (!teamState.endTime) {
+      teamState.endTime = new Date(Date.now() + TEAM_DURATION_MS).toISOString();
+    }
+
     state.team = teamState;
     state.yourBets = state.yourBets || { solo: '0', team: null };
-    state.yourBets.team = teamId;
+    const prevTeamBet = safeDecimal(state.yourBets.team?.bet || 0);
+    state.yourBets.team = {
+      teamId: team.id,
+      bet: prevTeamBet.plus(bet).toFixed(9),
+    };
 
     const newScore = balance.minus(bet);
     await supabase
@@ -874,46 +885,50 @@ app.post('/games/team/join', requireUser, async (req, res) => {
       })
       .eq('user_id', userId);
 
-    if (!teamState.isActive || !teamState.endTime) {
-      teamState.isActive = true;
-      teamState.endTime = new Date(Date.now() + TEAM_DURATION_MS).toISOString();
-    }
-
     await saveUserGameState(userId, state);
 
-    res.json({ success: true, state, newBalance: newScore.toFixed(9) });
+    res.json({
+      success: true,
+      state,
+      newBalance: newScore.toFixed(9),
+      team,
+    });
   } catch (e) {
     console.error('team join failed', e);
     res.status(500).json({ error: e.message || 'Failed to join team' });
   }
 });
 
+
 app.post('/games/team/create', requireUser, async (req, res) => {
   try {
-    const { userId, teamName, betAmount } = req.userId;
+    const userId = req.userId;
+    const { name, betAmount } = req.body;
+
     const bet = safeDecimal(betAmount);
-    if (!userId || !teamName || bet.lte(0)) {
+    if (!userId || !name || bet.lte(0)) {
       return res.status(400).json({ error: 'Invalid input' });
-    }
-    if (teamName.trim().length === 0 || teamName.length > 20) {
-      return res.status(400).json({ error: 'Invalid team name' });
     }
 
     const { data: player, error: playerError } = await supabase
       .from('players')
-      .select('score, username, first_name, last_name')
+      .select('score, username, first_name, last_name, profile_photo_url')
       .eq('user_id', userId)
       .single();
+
     if (playerError || !player) throw new Error('Player not found');
 
     const balance = safeDecimal(player.score);
-    if (balance.lt(bet)) return res.status(400).json({ error: 'Insufficient funds' });
+    if (balance.lt(bet)) {
+      return res.status(400).json({ error: 'Insufficient funds' });
+    }
 
     const { data: gameRow, error: gameError } = await supabase
       .from('game_state')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', 'global')
       .single();
+
     let state;
     if (gameError && gameError.code === 'PGRST116') {
       state = defaultGameState();
@@ -926,29 +941,38 @@ app.post('/games/team/create', requireUser, async (req, res) => {
     const teamState = state.team || defaultGameState().team;
     teamState.teams = teamState.teams || [];
 
-    const teamId = Date.now().toString();
-    const newTeam = {
+    const teamId = `team_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+
+    const team = {
       id: teamId,
-      name: teamName.trim(),
-      total: bet.toFixed(9),
+      name,
+      creatorId: userId,
       members: [
         {
           userId,
-          username: player.username || 'Anonymous',
+          username: player.username || null,
+          first_name: player.first_name || null,
+          last_name: player.last_name || null,
+          profile_photo_url: player.profile_photo_url || null,
           bet: bet.toFixed(9),
         },
       ],
-      creatorId: userId,
+      totalBet: bet.toFixed(9),
     };
 
-    teamState.teams.push(newTeam);
+    teamState.teams.push(team);
+
     teamState.pot = safeDecimal(teamState.pot).plus(bet).toFixed(9);
-    teamState.isActive = true;
-    teamState.endTime = new Date(Date.now() + TEAM_DURATION_MS).toISOString();
+    if (teamState.teams.length > 0) {
+      teamState.isActive = true;
+      if (!teamState.endTime) {
+        teamState.endTime = new Date(Date.now() + TEAM_DURATION_MS).toISOString();
+      }
+    }
 
     state.team = teamState;
     state.yourBets = state.yourBets || { solo: '0', team: null };
-    state.yourBets.team = teamId;
+    state.yourBets.team = { teamId: team.id, bet: bet.toFixed(9) };
 
     const newScore = balance.minus(bet);
     await supabase
@@ -961,27 +985,35 @@ app.post('/games/team/create', requireUser, async (req, res) => {
 
     await saveUserGameState(userId, state);
 
-    res.json({ success: true, state, newBalance: newScore.toFixed(9) });
+    res.json({
+      success: true,
+      state,
+      newBalance: newScore.toFixed(9),
+      team,
+    });
   } catch (e) {
     console.error('team create failed', e);
     res.status(500).json({ error: e.message || 'Failed to create team' });
   }
 });
 
+
 app.post('/games/team/draw', requireUser, async (req, res) => {
   try {
-    const { userId } = req.userId;
+    const userId = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
 
     const { data: gameRow, error } = await supabase
       .from('game_state')
       .select('*')
-      .eq('user_id', userId)
+      .eq('id', 'global')
       .single();
+
     if (error) throw error;
 
     const state = gameRow.state || defaultGameState();
     const teamState = state.team || defaultGameState().team;
+    const teams = teamState.teams || [];
 
     if (!teamState.isActive || !teamState.endTime) {
       return res.status(400).json({ error: 'No active team game' });
@@ -989,52 +1021,65 @@ app.post('/games/team/draw', requireUser, async (req, res) => {
 
     const now = new Date();
     if (new Date(teamState.endTime) > now) {
-      return res.status(400).json({ error: 'Team game not finished yet' });
+      return res.status(400).json({ error: 'Game not finished yet' });
     }
 
-    const teams = teamState.teams || [];
-    if (teams.length === 0) {
-      state.team = defaultGameState().team;
+    if (!teams.length) {
+      teamState.pot = '0';
+      teamState.isActive = false;
+      teamState.endTime = null;
+      state.team = teamState;
       await saveUserGameState(userId, state);
       return res.json({ success: true, winningTeam: null, prize: '0' });
     }
 
     const totalPot = safeDecimal(teamState.pot);
     if (totalPot.lte(0)) {
-      state.team = defaultGameState().team;
+      teamState.isActive = false;
+      teamState.endTime = null;
+      state.team = teamState;
       await saveUserGameState(userId, state);
       return res.json({ success: true, winningTeam: null, prize: '0' });
     }
 
-    const teamTotals = teams.map(t => ({
-      team: t,
-      total: safeDecimal(t.total),
-    }));
-
-    let sumTotals = new Decimal(0);
-    teamTotals.forEach(tt => {
-      sumTotals = sumTotals.plus(tt.total);
-    });
-
-    let rnd = Math.random() * sumTotals.toNumber();
-    let winningTeamData = teamTotals[0];
-
-    for (const tt of teamTotals) {
-      const amount = tt.total.toNumber();
-      if (rnd <= amount) {
-        winningTeamData = tt;
-        break;
-      }
-      rnd -= amount;
+    let totalBet = new Decimal(0);
+    for (const team of teams) {
+      totalBet = totalBet.plus(safeDecimal(team.totalBet || 0));
     }
 
-    const winningTeam = winningTeamData.team;
-    const prize = totalPot;
+    let rnd = Math.random() * totalBet.toNumber();
+    let winningTeam = teams[0];
+    for (const team of teams) {
+      const tb = safeDecimal(team.totalBet || 0);
+      if (rnd <= tb.toNumber()) {
+        winningTeam = team;
+        break;
+      }
+      rnd -= tb.toNumber();
+    }
 
-    for (const member of winningTeam.members || []) {
-      const share = safeDecimal(member.bet)
-        .dividedBy(winningTeamData.total)
-        .times(prize);
+    const fee = totalPot.times(HOUSE_FEE_RATE);
+    const prize = totalPot.minus(fee);
+
+    const members = winningTeam.members || [];
+    if (!members.length) {
+      teamState.isActive = false;
+      teamState.endTime = null;
+      state.team = teamState;
+      await saveUserGameState(userId, state);
+      return res.json({ success: true, winningTeam: null, prize: '0' });
+    }
+
+    let totalTeamBet = new Decimal(0);
+    members.forEach(m => {
+      totalTeamBet = totalTeamBet.plus(safeDecimal(m.bet));
+    });
+
+    for (const member of members) {
+      const memberBet = safeDecimal(member.bet);
+      if (memberBet.lte(0)) continue;
+
+      const share = prize.times(memberBet).div(totalTeamBet);
 
       const { data: pl } = await supabase
         .from('players')
@@ -1082,6 +1127,7 @@ app.post('/games/team/draw', requireUser, async (req, res) => {
     res.status(500).json({ error: e.message || 'Failed to draw team winner' });
   }
 });
+
 
 
 app.post('/player/add-coins', requireUser, async (req, res) => {
