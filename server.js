@@ -22,6 +22,7 @@ app.use(cors({
     'admin-id',
     'X-Admin-ID',
     'x-user-id',
+    'x-admin-secret'
   ],
 }));
 
