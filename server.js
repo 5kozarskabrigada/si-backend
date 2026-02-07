@@ -77,11 +77,16 @@ function requireUser(req, res, next) {
 
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
+
 const authenticateAdmin = (req, res, next) => {
   const token = req.headers['x-admin-secret'];       
   const expected = process.env.ADMIN_SECRET;
 
   if (!expected || token !== expected) {
+    console.log('Admin auth failed:', {
+      received: token,
+      expected: expected ? '***' : 'undefined'
+    });
     return res.status(403).json({ error: 'Forbidden' });
   }
 
