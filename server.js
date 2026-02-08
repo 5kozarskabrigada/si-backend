@@ -152,6 +152,63 @@ app.get("/player/:userId", requireUser, async (req, res) => {
 });
 
 
+app.get('/admin/enhanced-transaction-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data: transactions, error, count } = await supabase
+            .from('transactions')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const enhancedTransactions = await Promise.all(
+            transactions.map(async (tx) => {
+                const [sender, receiver] = await Promise.all([
+                    supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', tx.sender_id).single(),
+                    supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', tx.receiver_id).single()
+                ]);
+
+                return {
+                    ...tx,
+                    sender_name: sender.data?.first_name || sender.data?.username || 'Unknown',
+                    sender_username: sender.data?.username,
+                    sender_avatar: sender.data?.profile_photo_url,
+                    receiver_name: receiver.data?.first_name || receiver.data?.username || 'Unknown',
+                    receiver_username: receiver.data?.username,
+                    receiver_avatar: receiver.data?.profile_photo_url
+                };
+            })
+        );
+
+        res.json({
+            transactions: enhancedTransactions,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+app.get('/admin/maintenance-status', authenticateAdmin, async (req, res) => {
+    try {
+        res.json({
+            maintenance_mode: false,
+            message: "System is running normally"
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 app.post('/player/syncProfile', requireUser, async (req, res) => {
   const user_id = req.userId;
   const { username, first_name, last_name, language_code, photo_url } = req.body;
@@ -197,6 +254,165 @@ app.post('/player/sync', requireUser, async (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/admin/user-details/:userId', authenticateAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        const { data: user, error } = await supabase
+            .from('players')
+            .select('*')
+            .eq('user_id', userId)
+            .single();
+
+        if (error) throw error;
+
+        res.json({
+            success: true,
+            user: {
+                id: user.user_id,
+                username: user.username,
+                first_name: user.first_name,
+                last_name: user.last_name,
+                profile_photo_url: user.profile_photo_url,
+                score: user.score,
+                click_value: user.click_value,
+                auto_click_rate: user.auto_click_rate,
+                is_banned: user.is_banned,
+                is_admin: user.is_admin,
+                last_updated: user.last_updated
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data: transactions, error, count } = await supabase
+            .from('transactions')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const enhancedTransactions = await Promise.all(
+            transactions.map(async (tx) => {
+                const [sender, receiver] = await Promise.all([
+                    supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', tx.sender_id).single(),
+                    supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', tx.receiver_id).single()
+                ]);
+
+                return {
+                    ...tx,
+                    sender_name: sender.data?.first_name || sender.data?.username || 'Unknown',
+                    sender_username: sender.data?.username,
+                    sender_avatar: sender.data?.profile_photo_url,
+                    receiver_name: receiver.data?.first_name || receiver.data?.username || 'Unknown',
+                    receiver_username: receiver.data?.username,
+                    receiver_avatar: receiver.data?.profile_photo_url
+                };
+            })
+        );
+
+        res.json({
+            transactions: enhancedTransactions,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data: logs, error, count } = await supabase
+            .from('user_logs')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const enhancedLogs = await Promise.all(
+            logs.map(async (log) => {
+                const { data: user } = await supabase
+                    .from('players')
+                    .select('username, first_name, last_name, profile_photo_url')
+                    .eq('user_id', log.user_id)
+                    .single();
+
+                return {
+                    ...log,
+                    username: user?.username || 'Unknown',
+                    first_name: user?.first_name,
+                    last_name: user?.last_name,
+                    profile_photo_url: user?.profile_photo_url
+                };
+            })
+        );
+
+        res.json({
+            logs: enhancedLogs,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        const { data: logs, error, count } = await supabase
+            .from('admin_logs')
+            .select('*', { count: 'exact' })
+            .range(from, to)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const enhancedLogs = logs.map(log => {
+            let formattedDetails = log.details;
+            try {
+                const parsed = JSON.parse(log.details);
+                formattedDetails = JSON.stringify(parsed, null, 2);
+            } catch (e) {
+            }
+
+            return {
+                ...log,
+                formatted_details: formattedDetails
+            };
+        });
+
+        res.json({
+            logs: enhancedLogs,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
 app.post('/player/upgrade', requireUser, async (req, res) => {
