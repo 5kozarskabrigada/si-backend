@@ -424,7 +424,7 @@ app.post('/player/upgrade', requireUser, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing userId or upgradeId.' });
     }
 
-    const upgrade = upgradesConfig[upgradeId]; 
+    const upgrade = upgrades[upgradeId];
     if (!upgrade) {
       return res.status(400).json({ success: false, error: 'Invalid upgrade.' });
     }
