@@ -362,7 +362,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
                     });
                 }
             } catch (e) {
-                // Fallback to simple search if JSON parse fails
+                
                 query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
             }
         }
@@ -1921,6 +1921,28 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
   }
 });
 
+
+app.delete('/admin/user-logs/:logId', authenticateAdmin, async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { error } = await supabase.from('user_logs').delete().eq('id', logId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
+  try {
+    const { logId } = req.params;
+    const { error } = await supabase.from('admin_logs').delete().eq('id', logId);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.listen(port, () => {
   console.log(`Backend server is running on port ${port}`);
