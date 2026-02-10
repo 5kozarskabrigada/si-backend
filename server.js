@@ -134,6 +134,13 @@ app.get("/player/:userId", requireUser, async (req, res) => {
           last_updated: now.toISOString(),
         })
         .eq('user_id', userId);
+
+      await supabase.from('user_logs').insert({
+        user_id: userId,
+        username: player.username || 'Unknown',
+        action_type: 'offline_earnings',
+        details: `Earned ${offlineEarnings.toFixed(9)} coins while offline for ${Math.floor(timeOfflineSeconds)}s`,
+      });
     }
 
     res.json({
@@ -280,15 +287,43 @@ app.get('/admin/user-details/:userId', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 15 } = req.query;
+        const { page = 1, limit = 15, search = '' } = req.query;
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
-        const { data: transactions, error, count } = await supabase
+        let query = supabase
             .from('transactions')
             .select('*', { count: 'exact' })
             .range(from, to)
             .order('created_at', { ascending: false });
+
+        if (search) {
+            try {
+                const { freeText, filters } = JSON.parse(search);
+                if (freeText) {
+                    // Search in amounts or related user names (requires joins, but supabase simple query is limited)
+                    // For now, search ID or Amount
+                    query = query.or(`id.eq.${freeText},amount.ilike.%${freeText}%`);
+                }
+                if (filters && Array.isArray(filters)) {
+                    filters.forEach(f => {
+                        const key = f.key.replace(':', '');
+                        const val = f.value;
+                        if (key === 'user') query = query.or(`sender_id.eq.${val},receiver_id.eq.${val}`);
+                        else if (key === 'sender') query = query.eq('sender_id', val);
+                        else if (key === 'receiver') query = query.eq('receiver_id', val);
+                        else if (key === 'status') query = query.eq('status', val);
+                        else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
+                        else if (key === 'before') query = query.lte('created_at', val);
+                        else if (key === 'after') query = query.gte('created_at', val);
+                    });
+                }
+            } catch (e) {
+                 // Fallback
+            }
+        }
+
+        const { data: transactions, error, count } = await query;
 
         if (error) throw error;
 
@@ -317,6 +352,60 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
             totalPages: Math.ceil(count / limit),
             currentPage: parseInt(page),
         });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/admin/maintenance-status', authenticateAdmin, async (req, res) => {
+    try {
+        const { maintenance_mode, message } = req.body;
+        
+        const { error: modeError } = await supabase
+            .from('config')
+            .upsert({ key: 'maintenance_mode', value: String(maintenance_mode) }, { onConflict: 'key' });
+            
+        if (modeError) throw modeError;
+        
+        if (message) {
+            const { error: msgError } = await supabase
+                .from('config')
+                .upsert({ key: 'maintenance_message', value: message }, { onConflict: 'key' });
+            if (msgError) throw msgError;
+        }
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/admin/broadcast', authenticateAdmin, async (req, res) => {
+    try {
+        const { message, type, is_active } = req.body;
+        
+        if (message) {
+            const { error: msgError } = await supabase
+                .from('config')
+                .upsert({ key: 'broadcast_message', value: message }, { onConflict: 'key' });
+            if (msgError) throw msgError;
+        }
+
+        if (type) {
+             const { error: typeError } = await supabase
+                .from('config')
+                .upsert({ key: 'broadcast_type', value: type }, { onConflict: 'key' });
+            if (typeError) throw typeError;
+        }
+        
+        if (typeof is_active !== 'undefined') {
+            const { error: activeError } = await supabase
+                .from('config')
+                .upsert({ key: 'broadcast_active', value: String(is_active) }, { onConflict: 'key' });
+            if (activeError) throw activeError;
+        }
+        
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1665,7 +1754,7 @@ app.get('/maintenance-status', async (req, res) => {
       .eq('key', 'maintenance_mode')
       .single();
     
-    if (error) throw error;
+    if (error && error.code !== 'PGRST116') throw error;
     
     const { data: msgData } = await supabase
       .from('config')
@@ -1680,6 +1769,40 @@ app.get('/maintenance-status', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+app.get('/broadcast', async (req, res) => {
+    try {
+        const { data: activeData } = await supabase
+            .from('config')
+            .select('value')
+            .eq('key', 'broadcast_active')
+            .single();
+
+        if (activeData?.value !== 'true') {
+            return res.json({ active: false });
+        }
+
+        const { data: msgData } = await supabase
+            .from('config')
+            .select('value')
+            .eq('key', 'broadcast_message')
+            .single();
+            
+        const { data: typeData } = await supabase
+            .from('config')
+            .select('value')
+            .eq('key', 'broadcast_type')
+            .single();
+
+        res.json({
+            active: true,
+            message: msgData?.value || '',
+            type: typeData?.value || 'info'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 app.get('/admin/search-users', authenticateAdmin, async (req, res) => {
