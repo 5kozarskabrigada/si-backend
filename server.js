@@ -290,7 +290,7 @@ app.get('/admin/user-details/:userId', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 20 } = req.query;
+        const { page = 1, limit = 15 } = req.query;
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
@@ -334,16 +334,40 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 20 } = req.query;
+        const { page = 1, limit = 15, search = '' } = req.query;
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
-        const { data: logs, error, count } = await supabase
+        let query = supabase
             .from('user_logs')
             .select('*', { count: 'exact' })
             .range(from, to)
             .order('created_at', { ascending: false });
 
+        if (search) {
+            try {
+                const { freeText, filters } = JSON.parse(search);
+                if (freeText) {
+                    query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%`);
+                }
+                if (filters && Array.isArray(filters)) {
+                    filters.forEach(f => {
+                        const key = f.key.replace(':', '');
+                        const val = f.value;
+                        if (key === 'user') query = query.eq('user_id', val);
+                        else if (key === 'action') query = query.eq('action_type', val);
+                        else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
+                        else if (key === 'before') query = query.lte('created_at', val);
+                        else if (key === 'after') query = query.gte('created_at', val);
+                    });
+                }
+            } catch (e) {
+                // Fallback to simple search if JSON parse fails
+                query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
+            }
+        }
+
+        const { data: logs, error, count } = await query;
         if (error) throw error;
 
         const enhancedLogs = await Promise.all(
@@ -377,16 +401,40 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 20 } = req.query;
+        const { page = 1, limit = 15, search = '' } = req.query;
         const from = (page - 1) * limit;
         const to = from + limit - 1;
 
-        const { data: logs, error, count } = await supabase
+        let query = supabase
             .from('admin_logs')
             .select('*', { count: 'exact' })
             .range(from, to)
             .order('created_at', { ascending: false });
 
+        if (search) {
+            try {
+                const { freeText, filters } = JSON.parse(search);
+                if (freeText) {
+                    query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%`);
+                }
+                if (filters && Array.isArray(filters)) {
+                    filters.forEach(f => {
+                        const key = f.key.replace(':', '');
+                        const val = f.value;
+                        if (key === 'admin') query = query.eq('admin_id', val);
+                        else if (key === 'target') query = query.eq('target_user_id', val);
+                        else if (key === 'action') query = query.eq('action_type', val);
+                        else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
+                        else if (key === 'before') query = query.lte('created_at', val);
+                        else if (key === 'after') query = query.gte('created_at', val);
+                    });
+                }
+            } catch (e) {
+                query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
+            }
+        }
+
+        const { data: logs, error, count } = await query;
         if (error) throw error;
 
         const enhancedLogs = await Promise.all(
@@ -1410,7 +1458,7 @@ app.post('/player/add-coins', requireUser, async (req, res) => {
 
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20, search = '' } = req.query;
+    const { page = 1, limit = 15, search = '' } = req.query;
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
