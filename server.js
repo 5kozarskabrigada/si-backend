@@ -171,10 +171,10 @@ app.get('/admin/enhanced-transaction-details', authenticateAdmin, async (req, re
                     ...tx,
                     sender_name: sender.data?.first_name || sender.data?.username || 'Unknown',
                     sender_username: sender.data?.username,
-                    sender_avatar: sender.data?.profile_photo_url,
+                    sender_photo_url: sender.data?.profile_photo_url,
                     receiver_name: receiver.data?.first_name || receiver.data?.username || 'Unknown',
                     receiver_username: receiver.data?.username,
-                    receiver_avatar: receiver.data?.profile_photo_url
+                    receiver_photo_url: receiver.data?.profile_photo_url
                 };
             })
         );
