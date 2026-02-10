@@ -7,7 +7,7 @@ const { Decimal } = require('decimal.js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-const SOLO_BET_CUTOFF_MS = 20 * 1000; 
+const SOLO_BET_CUTOFF_MS = 20 * 1000;
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -27,7 +27,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-
 
 const INTRA_TIER_COST_MULTIPLIER = new Decimal(1.215);
 const SOLO_MIN_PLAYERS = 2;
@@ -63,7 +62,6 @@ function safeDecimal(v) {
   }
 }
 
-
 function requireUser(req, res, next) {
   const userId = req.headers['x-user-id'];
   if (!userId) {
@@ -73,13 +71,10 @@ function requireUser(req, res, next) {
   next();
 }
 
-
-
 app.get('/', (req, res) => res.send('Backend is running and connected to Supabase!'));
 
-
 const authenticateAdmin = (req, res, next) => {
-  const token = req.headers['x-admin-secret'];       
+  const token = req.headers['x-admin-secret'];
   const expected = process.env.ADMIN_SECRET;
 
   if (!expected || token !== expected) {
@@ -151,7 +146,6 @@ app.get("/player/:userId", requireUser, async (req, res) => {
   }
 });
 
-
 app.get('/admin/enhanced-transaction-details', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20 } = req.query;
@@ -196,7 +190,6 @@ app.get('/admin/enhanced-transaction-details', authenticateAdmin, async (req, re
     }
 });
 
-
 app.get('/admin/maintenance-status', authenticateAdmin, async (req, res) => {
     try {
         res.json({
@@ -207,7 +200,6 @@ app.get('/admin/maintenance-status', authenticateAdmin, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 app.post('/player/syncProfile', requireUser, async (req, res) => {
   const user_id = req.userId;
@@ -235,7 +227,6 @@ app.post('/player/syncProfile', requireUser, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.post('/player/sync', requireUser, async (req, res) => {
   const userId = req.userId;
@@ -286,7 +277,6 @@ app.get('/admin/user-details/:userId', authenticateAdmin, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
     try {
@@ -362,7 +352,6 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
                     });
                 }
             } catch (e) {
-                
                 query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
             }
         }
@@ -479,7 +468,6 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
     }
 });
 
-
 app.post('/player/upgrade', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -550,8 +538,6 @@ app.post('/player/upgrade', requireUser, async (req, res) => {
   }
 });
 
-
-
 app.get('/leaderboard/:sortBy', async (req, res) => {
   const { sortBy } = req.params;
   const validSorts = ['score', 'click_value', 'auto_click_rate'];
@@ -574,7 +560,6 @@ app.get('/leaderboard/:sortBy', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch leaderboard data.' });
   }
 });
-
 
 app.get('/wallet/history/:userId', requireUser, async (req, res) => {
   const userId = req.userId;
@@ -687,8 +672,6 @@ app.post('/wallet/transfer', requireUser, async (req, res) => {
   }
 });
 
-
-
 app.post('/tasks/claim', async (req, res) => {
   try {
     res.json({ success: true });
@@ -696,7 +679,6 @@ app.post('/tasks/claim', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 function defaultGameState() {
   return {
@@ -720,7 +702,6 @@ function defaultGameState() {
   };
 }
 
-
 async function saveUserGameState(userId, state) {
   const { error } = await supabase
     .from('game_state')
@@ -735,7 +716,6 @@ async function saveUserGameState(userId, state) {
 
   if (error) throw error;
 }
-
 
 app.get('/games/state/:userId', requireUser, async (req, res) => {
   try {
@@ -758,8 +738,6 @@ app.get('/games/state/:userId', requireUser, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
-
-
 
 app.post('/games/join-solo', requireUser, async (req, res) => {
   try {
@@ -785,7 +763,7 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
     }
 
     const { data: gameRow, error: gameError } = await supabase
-      .from('game_state') 
+      .from('game_state')
       .select('*')
       .eq('user_id', 'global')
       .single();
@@ -865,7 +843,6 @@ app.post('/games/join-solo', requireUser, async (req, res) => {
   }
 });
 
-
 app.post('/games/draw-solo', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -893,7 +870,7 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 
     const participants = solo.participants || [];
     if (participants.length < SOLO_MIN_PLAYERS) {
-             for (const p of participants) {
+      for (const p of participants) {
         const bet = safeDecimal(p.bet);
         if (bet.lte(0)) continue;
 
@@ -926,7 +903,7 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
       return res.json({ success: true, winner: null, prize: '0' });
     }
 
-         let totalBet = new Decimal(0);
+    let totalBet = new Decimal(0);
     participants.forEach(p => {
       totalBet = totalBet.plus(safeDecimal(p.bet));
     });
@@ -1000,8 +977,6 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
   }
 });
 
-
-
 app.post('/games/withdraw-solo', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -1014,7 +989,6 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
       .single();
 
     if (error && error.code === 'PGRST116') {
-
       return res.status(400).json({ error: 'No active solo bet to withdraw' });
     } else if (error) {
       throw error;
@@ -1034,7 +1008,6 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
       return res.status(400).json({ error: 'Nothing to withdraw' });
     }
 
-
     const { data: player, error: playerError } = await supabase
       .from('players')
       .select('score')
@@ -1052,13 +1025,11 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
       })
       .eq('user_id', userId);
 
-
     solo.pot = safeDecimal(solo.pot).minus(bet).toFixed(9);
     participants.splice(idx, 1);
     solo.participants = participants;
 
     if (participants.length >= SOLO_MIN_PLAYERS) {
-
     } else {
       solo.isActive = false;
       solo.endTime = null;
@@ -1081,9 +1052,6 @@ app.post('/games/withdraw-solo', requireUser, async (req, res) => {
     res.status(500).json({ error: e.message || 'Withdraw failed' });
   }
 });
-
-
-
 
 app.post('/games/team/join', requireUser, async (req, res) => {
   try {
@@ -1187,7 +1155,6 @@ app.post('/games/team/join', requireUser, async (req, res) => {
   }
 });
 
-
 app.post('/games/team/create', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -1284,7 +1251,6 @@ app.post('/games/team/create', requireUser, async (req, res) => {
     res.status(500).json({ error: e.message || 'Failed to create team' });
   }
 });
-
 
 app.post('/games/team/draw', requireUser, async (req, res) => {
   try {
@@ -1416,8 +1382,6 @@ app.post('/games/team/draw', requireUser, async (req, res) => {
   }
 });
 
-
-
 app.post('/player/add-coins', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -1453,9 +1417,6 @@ app.post('/player/add-coins', requireUser, async (req, res) => {
   }
 });
 
-
-
-
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
     const { page = 1, limit = 15, search = '' } = req.query;
@@ -1485,11 +1446,18 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
   }
 });
 
-
 app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
     const updates = req.body;
+
+    const { data: oldUser, error: fetchError } = await supabase
+      .from('players')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError) throw fetchError;
 
     const { data, error } = await supabase
       .from('players')
@@ -1501,12 +1469,22 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
     if (error) throw error;
 
     const adminId = req.admin ? String(req.admin.user_id) : 'system';
+    
+    const diff = {};
+    for (const key in updates) {
+      if (oldUser[key] !== updates[key]) {
+        diff[key] = {
+          old: oldUser[key],
+          new: updates[key]
+        };
+      }
+    }
 
     const { error: logError } = await supabase.from('admin_logs').insert({
       admin_id: adminId,
       action_type: 'update_user',
       target_user_id: String(userId),
-      details: `Updated player: ${JSON.stringify(updates)}`,
+      details: JSON.stringify({ updates: diff }),
     });
 
     if (logError) {
@@ -1519,7 +1497,6 @@ app.post('/admin/users/:userId', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
   try {
@@ -1538,7 +1515,9 @@ app.post('/admin/users/:userId/ban', authenticateAdmin, async (req, res) => {
       admin_id: req.admin.user_id,
       action_type: 'ban_user',
       target_user_id: userId,
-      details: 'Banned user from the platform',
+      details: JSON.stringify({
+        updates: { is_banned: { old: false, new: true } }
+      }),
     });
 
     res.json({ success: true, user: data });
@@ -1564,7 +1543,9 @@ app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
       admin_id: req.admin.user_id,
       action_type: 'unban_user',
       target_user_id: userId,
-      details: 'Restored user access',
+      details: JSON.stringify({
+        updates: { is_banned: { old: true, new: false } }
+      }),
     });
 
     res.json({ success: true, user: data });
@@ -1671,6 +1652,49 @@ app.get('/admin/combined-activity', authenticateAdmin, async (req, res) => {
     combined.sort((a, b) => new Date(b.time) - new Date(a.time));
 
     res.json({ logs: combined.slice(0, 15) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/maintenance-status', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('config')
+      .select('value')
+      .eq('key', 'maintenance_mode')
+      .single();
+    
+    if (error) throw error;
+    
+    const { data: msgData } = await supabase
+      .from('config')
+      .select('value')
+      .eq('key', 'maintenance_message')
+      .single();
+
+    res.json({ 
+      maintenance_mode: data?.value === 'true',
+      message: msgData?.value || 'The system is currently under maintenance. Please try again later.'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/admin/search-users', authenticateAdmin, async (req, res) => {
+  try {
+    const { query, limit = 10 } = req.query;
+    if (!query) return res.json([]);
+
+    const { data: players, error } = await supabase
+      .from('players')
+      .select('user_id, username, first_name, last_name, profile_photo_url')
+      .or(`username.ilike.%${query}%,first_name.ilike.%${query}%,last_name.ilike.%${query}%,user_id.ilike.%${query}%`)
+      .limit(limit);
+
+    if (error) throw error;
+    res.json(players);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1800,13 +1824,16 @@ app.post('/admin/users/:userId/reset-score', authenticateAdmin, async (req, res)
   try {
     const { userId } = req.params;
 
+    const { data: user } = await supabase.from('players').select('score').eq('user_id', userId).single();
     await supabase.from('players').update({ score: 0 }).eq('user_id', userId);
 
     await supabase.from('admin_logs').insert({
       admin_id: req.admin.user_id,
       action_type: 'reset_score',
       target_user_id: userId,
-      details: 'Score reset to 0',
+      details: JSON.stringify({
+        updates: { score: { old: user?.score || 0, new: 0 } }
+      }),
     });
 
     res.json({ success: true });
@@ -1840,7 +1867,15 @@ app.post('/admin/users/:userId/add-coins', authenticateAdmin, async (req, res) =
       admin_id: req.admin.user_id,
       action_type: 'add_coins',
       target_user_id: userId,
-      details: `Added ${amount} coins. Old: ${user.score}, New: ${newScore}`,
+      details: JSON.stringify({
+        updates: {
+          score: {
+            old: user.score,
+            new: newScore
+          }
+        },
+        reason: `Added ${amount} coins`
+      }),
     });
 
     res.json({ success: true, user: updatedUser });
@@ -1920,7 +1955,6 @@ app.post('/admin/users/:userId/delete', authenticateAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 app.delete('/admin/user-logs/:logId', authenticateAdmin, async (req, res) => {
   try {

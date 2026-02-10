@@ -13,12 +13,10 @@ if (!TELEGRAM_BOT_TOKEN || !WEB_APP_URL || !SUPABASE_URL || !SUPABASE_KEY) {
     throw new Error("Missing critical environment variables for the bot!");
 }
 
-
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 console.log('Telegram Bot is running...');
-
 
 bot.onText(/\/start/, async (msg) => {
     const { id: telegram_id, username, first_name, last_name, language_code } = msg.from;
@@ -47,7 +45,6 @@ bot.onText(/\/start/, async (msg) => {
 
         if (error) throw error;
 
-        
         bot.sendMessage(chatId, "Welcome back! Click the button below to play.", {
             reply_markup: {
                 inline_keyboard: [[{ text: "🚀 Open Game", web_app: { url: WEB_APP_URL } }]]
