@@ -313,10 +313,10 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                     ...tx,
                     sender_name: sender.data?.first_name || sender.data?.username || 'Unknown',
                     sender_username: sender.data?.username,
-                    sender_avatar: sender.data?.profile_photo_url,
+                    sender_photo_url: sender.data?.profile_photo_url,
                     receiver_name: receiver.data?.first_name || receiver.data?.username || 'Unknown',
                     receiver_username: receiver.data?.username,
-                    receiver_avatar: receiver.data?.profile_photo_url
+                    receiver_photo_url: receiver.data?.profile_photo_url
                 };
             })
         );
@@ -359,7 +359,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
                     username: user?.username || 'Unknown',
                     first_name: user?.first_name,
                     last_name: user?.last_name,
-                    profile_photo_url: user?.profile_photo_url
+                    photo_url: user?.profile_photo_url
                 };
             })
         );
@@ -389,19 +389,36 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
 
         if (error) throw error;
 
-        const enhancedLogs = logs.map(log => {
-            let formattedDetails = log.details;
-            try {
-                const parsed = JSON.parse(log.details);
-                formattedDetails = JSON.stringify(parsed, null, 2);
-            } catch (e) {
-            }
+        const enhancedLogs = await Promise.all(
+            logs.map(async (log) => {
+                let formattedDetails = log.details;
+                try {
+                    const parsed = JSON.parse(log.details);
+                    formattedDetails = JSON.stringify(parsed, null, 2);
+                } catch (e) {}
 
-            return {
-                ...log,
-                formatted_details: formattedDetails
-            };
-        });
+                const [admin, target] = await Promise.all([
+                    log.admin_id !== 'system' ? 
+                        supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', log.admin_id).single() : 
+                        { data: null },
+                    log.target_user_id ? 
+                        supabase.from('players').select('username, first_name, last_name, profile_photo_url').eq('user_id', log.target_user_id).single() : 
+                        { data: null }
+                ]);
+
+                return {
+                    ...log,
+                    formatted_details: formattedDetails,
+                    admin_first_name: admin.data?.first_name,
+                    admin_username: admin.data?.username,
+                    admin_photo_url: admin.data?.profile_photo_url,
+                    target_first_name: target.data?.first_name,
+                    target_last_name: target.data?.last_name,
+                    target_username: target.data?.username,
+                    target_photo_url: target.data?.profile_photo_url
+                };
+            })
+        );
 
         res.json({
             logs: enhancedLogs,
@@ -828,8 +845,7 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 
     const participants = solo.participants || [];
     if (participants.length < SOLO_MIN_PLAYERS) {
-      // refund all bets
-      for (const p of participants) {
+             for (const p of participants) {
         const bet = safeDecimal(p.bet);
         if (bet.lte(0)) continue;
 
@@ -862,8 +878,7 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
       return res.json({ success: true, winner: null, prize: '0' });
     }
 
-    // weighted random by bet
-    let totalBet = new Decimal(0);
+         let totalBet = new Decimal(0);
     participants.forEach(p => {
       totalBet = totalBet.plus(safeDecimal(p.bet));
     });
