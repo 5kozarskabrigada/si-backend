@@ -293,9 +293,7 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
 
         let query = supabase
             .from('transactions')
-            .select('*', { count: 'exact' })
-            .range(from, to)
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' });
 
         if (search) {
             try {
@@ -322,6 +320,9 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                  // Fallback
             }
         }
+
+        query = query.order('created_at', { ascending: false })
+            .range(from, to);
 
         const { data: transactions, error, count } = await query;
 
@@ -419,9 +420,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
 
         let query = supabase
             .from('user_logs')
-            .select('*', { count: 'exact' })
-            .range(from, to)
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' });
 
         if (search) {
             try {
@@ -444,6 +443,9 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
                 query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
             }
         }
+
+        query = query.order('created_at', { ascending: false })
+            .range(from, to);
 
         const { data: logs, error, count } = await query;
         if (error) throw error;
@@ -485,9 +487,7 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
 
         let query = supabase
             .from('admin_logs')
-            .select('*', { count: 'exact' })
-            .range(from, to)
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' });
 
         if (search) {
             try {
@@ -511,6 +511,9 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
                 query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
             }
         }
+
+        query = query.order('created_at', { ascending: false })
+            .range(from, to);
 
         const { data: logs, error, count } = await query;
         if (error) throw error;
