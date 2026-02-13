@@ -10,7 +10,8 @@ INSERT INTO config (key, value) VALUES
 ('maintenance_message', 'The system is currently under maintenance. Please try again later.'),
 ('broadcast_active', 'false'),
 ('broadcast_message', ''),
-('broadcast_type', 'info')
+('broadcast_type', 'info'),
+('broadcast_updated_at', '0')
 ON CONFLICT (key) DO NOTHING;
 
 -- Ensure RLS is enabled or permissions are set correctly (depending on your setup)

@@ -405,6 +405,11 @@ app.post('/admin/broadcast', authenticateAdmin, async (req, res) => {
                 .upsert({ key: 'broadcast_active', value: String(is_active) }, { onConflict: 'key' });
             if (activeError) throw activeError;
         }
+
+        // Always update the timestamp when any broadcast property is changed
+        await supabase
+            .from('config')
+            .upsert({ key: 'broadcast_updated_at', value: String(Date.now()) }, { onConflict: 'key' });
         
         res.json({ success: true });
     } catch (error) {
@@ -1798,10 +1803,17 @@ app.get('/broadcast', async (req, res) => {
             .eq('key', 'broadcast_type')
             .single();
 
+        const { data: idData } = await supabase
+            .from('config')
+            .select('value')
+            .eq('key', 'broadcast_updated_at')
+            .single();
+
         res.json({
             active: true,
             message: msgData?.value || '',
-            type: typeData?.value || 'info'
+            type: typeData?.value || 'info',
+            id: idData?.value || '0'
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
