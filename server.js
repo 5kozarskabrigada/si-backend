@@ -315,7 +315,9 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                     });
                 }
             } catch (e) {
-                 // Fallback
+                if (search && !search.includes(':')) {
+                    query = query.or(`receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                }
             }
         }
 
