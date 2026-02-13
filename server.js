@@ -298,10 +298,8 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
         if (search) {
             try {
                 const { freeText, filters } = JSON.parse(search);
-                if (freeText) {
-                    // Search in amounts or related user names (requires joins, but supabase simple query is limited)
-                    // For now, search ID or Amount
-                    query = query.or(`id.eq.${freeText},amount.ilike.%${freeText}%`);
+                if (freeText && !freeText.includes(':')) {
+                    query = query.or(`receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
                 }
                 if (filters && Array.isArray(filters)) {
                     filters.forEach(f => {
@@ -425,7 +423,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
         if (search) {
             try {
                 const { freeText, filters } = JSON.parse(search);
-                if (freeText) {
+                if (freeText && !freeText.includes(':')) {
                     query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%`);
                 }
                 if (filters && Array.isArray(filters)) {
@@ -492,7 +490,7 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
         if (search) {
             try {
                 const { freeText, filters } = JSON.parse(search);
-                if (freeText) {
+                if (freeText && !freeText.includes(':')) {
                     query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%`);
                 }
                 if (filters && Array.isArray(filters)) {
