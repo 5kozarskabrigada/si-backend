@@ -7,14 +7,9 @@ const { Decimal } = require('decimal.js');
 const app = express();
 const port = process.env.PORT || 3000;
 
-const SOLO_BET_CUTOFF_MS = 20 * 1000;
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+const corsOptions = {
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type',
     'Authorization',
@@ -24,9 +19,19 @@ app.use(cors({
     'x-user-id',
     'x-admin-secret'
   ],
-}));
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+// app.options('*', cors(corsOptions));
 
 app.use(express.json());
+
+const SOLO_BET_CUTOFF_MS = 20 * 1000;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const INTRA_TIER_COST_MULTIPLIER = new Decimal(1.215);
 const SOLO_MIN_PLAYERS = 2;
@@ -84,11 +89,13 @@ const authenticateAdmin = (req, res, next) => {
   const token = req.headers['x-admin-secret'];
   const expected = process.env.ADMIN_SECRET;
 
-  if (!expected || token !== expected) {
-    console.log('Admin auth failed:', {
-      received: token,
-      expected: expected ? '***' : 'undefined'
-    });
+  if (!expected) {
+    console.error('CRITICAL: ADMIN_SECRET not set in environment variables!');
+    return res.status(500).json({ error: 'Server misconfiguration' });
+  }
+
+  if (token !== expected) {
+    console.warn(`Admin auth failed. IP: ${req.ip}, Token: ${token ? 'PROVIDED' : 'MISSING'}`);
     return res.status(403).json({ error: 'Forbidden' });
   }
 
@@ -2459,6 +2466,14 @@ app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+app.use((err, req, res, next) => {
+  console.error('Unhandled Server Error:', err);
+  res.status(500).json({ 
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 app.listen(port, () => {
