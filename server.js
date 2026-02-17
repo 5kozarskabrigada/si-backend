@@ -95,7 +95,7 @@ const authenticateAdmin = (req, res, next) => {
   }
 
   if (token !== expected) {
-    console.warn(`Admin auth failed. IP: ${req.ip}, Token: ${token ? 'PROVIDED' : 'MISSING'}`);
+    console.warn(`Admin auth failed. IP: ${req.ip}, Token: ${token ? 'PROVIDED (Mismatch)' : 'MISSING'}`);
     return res.status(403).json({ error: 'Forbidden' });
   }
 
