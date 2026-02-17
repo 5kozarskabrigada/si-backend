@@ -324,10 +324,10 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                     if (isNumeric) {
                         // If numeric, search ID fields and Amount (exact match) + Text fields (partial)
                         // Note: Ensure your DB columns are compatible. If sender_id is BIGINT, eq.123 works.
-                        query = query.or(`sender_id.eq.${freeText},receiver_id.eq.${freeText},amount.eq.${freeText},receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
+                        query = query.or(`sender_id.eq.${freeText},receiver_id.eq.${freeText},amount.eq.${freeText},receiver_username.ilike.%${freeText}%`);
                     } else {
                         // If text, search only text fields to prevent type errors
-                        query = query.or(`receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
+                        query = query.or(`receiver_username.ilike.%${freeText}%`);
                     }
                 }
                 if (filters && Array.isArray(filters)) {
@@ -337,7 +337,14 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                         if (key === 'user') query = query.or(`sender_id.eq.${val},receiver_id.eq.${val}`);
                         else if (key === 'sender') query = query.eq('sender_id', val);
                         else if (key === 'receiver') query = query.eq('receiver_id', val);
-                        else if (key === 'status') query = query.eq('status', val);
+                        else if (key === 'status') {
+                            // Transactions table doesn't have status column, but frontend might send it
+                            // If user filters by status:success, we do nothing (all are success)
+                            // If user filters by status:failed, we return empty set
+                            if (val !== 'success') {
+                                query = query.eq('sender_id', '0'); // Force empty result for non-success
+                            }
+                        }
                         else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
                         else if (key === 'before') query = query.lte('created_at', val);
                         else if (key === 'after') query = query.gte('created_at', val);
@@ -347,9 +354,9 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                 if (search && !search.includes(':')) {
                      const isNumeric = /^\d+(\.\d+)?$/.test(search);
                     if (isNumeric) {
-                        query = query.or(`sender_id.eq.${search},receiver_id.eq.${search},amount.eq.${search},receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                        query = query.or(`sender_id.eq.${search},receiver_id.eq.${search},amount.eq.${search},receiver_username.ilike.%${search}%`);
                     } else {
-                        query = query.or(`receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                        query = query.or(`receiver_username.ilike.%${search}%`);
                     }
                 }
             }
@@ -465,13 +472,14 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
             try {
                 const { freeText, filters } = JSON.parse(search);
                 if (freeText && !freeText.includes(':')) {
-                    query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%`);
+                    query = query.or(`details.ilike.%${freeText}%,action_type.ilike.%${freeText}%,username.ilike.%${freeText}%,user_id.ilike.%${freeText}%`);
                 }
                 if (filters && Array.isArray(filters)) {
                     filters.forEach(f => {
                         const key = f.key.replace(':', '');
                         const val = f.value;
                         if (key === 'user') query = query.eq('user_id', val);
+                        else if (key === 'username') query = query.ilike('username', `%${val}%`);
                         else if (key === 'action') query = query.eq('action_type', val);
                         else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
                         else if (key === 'before') query = query.lte('created_at', val);
@@ -479,7 +487,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
                     });
                 }
             } catch (e) {
-                query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%`);
+                query = query.or(`details.ilike.%${search}%,action_type.ilike.%${search}%,username.ilike.%${search}%,user_id.ilike.%${search}%`);
             }
         }
 
