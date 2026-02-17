@@ -1103,16 +1103,57 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 
 // --- Task System Endpoints ---
 
-// Get all tasks (Admin only)
+// Get all tasks (Admin only) - Enhanced with search and pagination
 app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
     try {
-        const { data: tasks, error } = await supabase
+        const { page = 1, limit = 15, search = '' } = req.query;
+        const from = (page - 1) * limit;
+        const to = from + limit - 1;
+
+        let query = supabase
             .from('admin_tasks')
-            .select('*')
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' });
+
+        if (search) {
+            try {
+                const { freeText, filters } = JSON.parse(search);
+                if (freeText && !freeText.includes(':')) {
+                    query = query.or(`title.ilike.%${freeText}%,description.ilike.%${freeText}%`);
+                }
+                if (filters && Array.isArray(filters)) {
+                    filters.forEach(f => {
+                        const key = f.key.replace(':', '');
+                        const val = f.value;
+                        if (key === 'type') query = query.eq('type', val);
+                        else if (key === 'status') {
+                            if (val === 'active') query = query.eq('is_active', true);
+                            else if (val === 'inactive') query = query.eq('is_active', false);
+                        }
+                        else if (key === 'reward') query = query.eq('reward_type', val);
+                        else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
+                        else if (key === 'before') query = query.lte('created_at', val);
+                        else if (key === 'after') query = query.gte('created_at', val);
+                    });
+                }
+            } catch (e) {
+                // Fallback for simple string search
+                query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
+            }
+        }
+
+        query = query.order('created_at', { ascending: false })
+            .range(from, to);
+
+        const { data: tasks, error, count } = await query;
 
         if (error) throw error;
-        res.json(tasks);
+        
+        res.json({
+            tasks: tasks,
+            totalCount: count,
+            totalPages: Math.ceil(count / limit),
+            currentPage: parseInt(page),
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1796,12 +1837,42 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
 
     let query = supabase
       .from('players')
-      .select('*', { count: 'exact' })
-      .range(from, to);
+      .select('*', { count: 'exact' });
 
     if (search) {
-      query = query.or(`username.ilike.%${search}%,user_id.eq.${search}`);
+      try {
+        const { freeText, filters } = JSON.parse(search);
+        
+        if (freeText) {
+             query = query.or(`username.ilike.%${freeText}%,user_id.eq.${freeText},first_name.ilike.%${freeText}%,last_name.ilike.%${freeText}%`);
+        }
+
+        if (filters && Array.isArray(filters)) {
+            filters.forEach(f => {
+                const key = f.key.replace(':', '');
+                const val = f.value;
+                
+                if (key === 'status') {
+                    if (val === 'banned') query = query.eq('is_banned', true);
+                    else if (val === 'active') query = query.eq('is_banned', false);
+                    else if (val === 'admin') query = query.eq('is_admin', true);
+                }
+                else if (key === 'score') {
+                    // Simple greater than for now, or could parse ranges
+                    if (!isNaN(val)) query = query.gte('score', val);
+                }
+                else if (key === 'date') query = query.gte('last_updated', val).lte('last_updated', val + 'T23:59:59');
+                else if (key === 'before') query = query.lte('last_updated', val);
+                else if (key === 'after') query = query.gte('last_updated', val);
+            });
+        }
+      } catch (e) {
+        // Fallback to simple search
+        query = query.or(`username.ilike.%${search}%,user_id.eq.${search},first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
+      }
     }
+
+    query = query.range(from, to).order('score', { ascending: false });
 
     const { data, error, count } = await query;
     if (error) throw error;
