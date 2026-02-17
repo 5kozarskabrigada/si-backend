@@ -7,6 +7,7 @@ const { Decimal } = require('decimal.js');
 const app = express();
 const port = process.env.PORT || 3000;
 
+
 const corsOptions = {
   origin: '*', 
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -170,8 +171,10 @@ app.get("/player/:userId", requireUser, async (req, res) => {
 app.get('/admin/enhanced-transaction-details', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 20 } = req.query;
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
+        const p = parseInt(page);
+        const l = parseInt(limit);
+        const from = (p - 1) * l;
+        const to = from + l - 1;
 
         const { data: transactions, error, count } = await supabase
             .from('transactions')
@@ -306,9 +309,11 @@ app.get('/admin/user-details/:userId', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 15, search = '' } = req.query;
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
+        const { page = 1, limit = 15, search = '', sortBy = 'created_at', order = 'desc' } = req.query;
+        const p = parseInt(page);
+        const l = parseInt(limit);
+        const from = (p - 1) * l;
+        const to = from + l - 1;
 
         let query = supabase
             .from('transactions')
@@ -362,7 +367,7 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
             }
         }
 
-        query = query.order('created_at', { ascending: false })
+        query = query.order(sortBy, { ascending: order === 'asc' })
             .range(from, to);
 
         const { data: transactions, error, count } = await query;
@@ -460,9 +465,11 @@ app.post('/admin/broadcast', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 15, search = '' } = req.query;
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
+        const { page = 1, limit = 15, search = '', sortBy = 'created_at', order = 'desc' } = req.query;
+        const p = parseInt(page);
+        const l = parseInt(limit);
+        const from = (p - 1) * l;
+        const to = from + l - 1;
 
         let query = supabase
             .from('user_logs')
@@ -491,7 +498,7 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
             }
         }
 
-        query = query.order('created_at', { ascending: false })
+        query = query.order(sortBy, { ascending: order === 'asc' })
             .range(from, to);
 
         const { data: logs, error, count } = await query;
@@ -528,9 +535,11 @@ app.get('/admin/enhanced-user-logs', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 15, search = '' } = req.query;
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
+        const { page = 1, limit = 15, search = '', sortBy = 'created_at', order = 'desc' } = req.query;
+        const p = parseInt(page);
+        const l = parseInt(limit);
+        const from = (p - 1) * l;
+        const to = from + l - 1;
 
         let query = supabase
             .from('admin_logs')
@@ -559,7 +568,7 @@ app.get('/admin/enhanced-admin-logs', authenticateAdmin, async (req, res) => {
             }
         }
 
-        query = query.order('created_at', { ascending: false })
+        query = query.order(sortBy, { ascending: order === 'asc' })
             .range(from, to);
 
         const { data: logs, error, count } = await query;
@@ -1156,7 +1165,7 @@ app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
             }
         }
 
-        query = query.order('created_at', { ascending: false })
+        query = query.order(sortBy, { ascending: order === 'asc' })
             .range(from, to);
 
         const { data: tasks, error, count } = await query;
@@ -1846,9 +1855,11 @@ app.post('/player/add-coins', requireUser, async (req, res) => {
 
 app.get('/admin/users', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 15, search = '' } = req.query;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const { page = 1, limit = 15, search = '', sortBy = 'score', order = 'desc' } = req.query;
+    const p = parseInt(page);
+    const l = parseInt(limit);
+    const from = (p - 1) * l;
+    const to = from + l - 1;
 
     let query = supabase
       .from('players')
@@ -1887,7 +1898,7 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
       }
     }
 
-    query = query.range(from, to).order('score', { ascending: false });
+    query = query.range(from, to).order(sortBy, { ascending: order === 'asc' });
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -2013,15 +2024,17 @@ app.post('/admin/users/:userId/unban', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20, userId } = req.query;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const { page = 1, limit = 20, userId, sortBy = 'created_at', order = 'desc' } = req.query;
+    const p = parseInt(page);
+    const l = parseInt(limit);
+    const from = (p - 1) * l;
+    const to = from + l - 1;
 
     let query = supabase
       .from('user_logs')
       .select('*', { count: 'exact' })
       .range(from, to)
-      .order('created_at', { ascending: false });
+      .order(sortBy, { ascending: order === 'asc' });
 
     if (userId) {
       query = query.eq('user_id', userId);
@@ -2043,15 +2056,17 @@ app.get('/admin/user-logs', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/admin-logs', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const { page = 1, limit = 20, sortBy = 'created_at', order = 'desc' } = req.query;
+    const p = parseInt(page);
+    const l = parseInt(limit);
+    const from = (p - 1) * l;
+    const to = from + l - 1;
 
     const { data, error, count } = await supabase
       .from('admin_logs')
       .select('*', { count: 'exact' })
       .range(from, to)
-      .order('created_at', { ascending: false });
+      .order(sortBy, { ascending: order === 'asc' });
 
     if (error) throw error;
 
@@ -2242,15 +2257,17 @@ app.get('/admin/stats', authenticateAdmin, async (req, res) => {
 
 app.get('/admin/transactions', authenticateAdmin, async (req, res) => {
   try {
-    const { page = 1, limit = 20 } = req.query;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const { page = 1, limit = 20, sortBy = 'created_at', order = 'desc' } = req.query;
+    const p = parseInt(page);
+    const l = parseInt(limit);
+    const from = (p - 1) * l;
+    const to = from + l - 1;
 
     const { data, error, count } = await supabase
       .from('transactions')
       .select('*', { count: 'exact' })
       .range(from, to)
-      .order('created_at', { ascending: false });
+      .order(sortBy, { ascending: order === 'asc' });
 
     if (error) throw error;
 
