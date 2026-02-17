@@ -1094,7 +1094,7 @@ app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
 // Create a new task (Admin only)
 app.post('/admin/tasks', authenticateAdmin, async (req, res) => {
     try {
-        const { title, description, type, target_value, reward_type, reward_amount, expires_at } = req.body;
+        const { title, description, type, target_value, reward_type, reward_amount, expires_at, task_url } = req.body;
 
         const { data, error } = await supabase
             .from('admin_tasks')
@@ -1105,6 +1105,7 @@ app.post('/admin/tasks', authenticateAdmin, async (req, res) => {
                 target_value,
                 reward_type,
                 reward_amount,
+                task_url,
                 expires_at: expires_at || null,
                 is_active: true
             }])

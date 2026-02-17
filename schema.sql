@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS admin_tasks (
   target_value NUMERIC NOT NULL DEFAULT 0,
   reward_type TEXT NOT NULL DEFAULT 'coins', -- 'coins' or 'present'
   reward_amount NUMERIC NOT NULL DEFAULT 0,
+  task_url TEXT, -- URL for social/manual tasks
   expires_at TIMESTAMP WITH TIME ZONE,
   is_active BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
