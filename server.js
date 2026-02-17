@@ -1074,7 +1074,253 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
   }
 });
 
-app.post('/games/withdraw-solo', requireUser, async (req, res) => {
+// --- Task System Endpoints ---
+
+// Get all tasks (Admin only)
+app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
+    try {
+        const { data: tasks, error } = await supabase
+            .from('admin_tasks')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(tasks);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create a new task (Admin only)
+app.post('/admin/tasks', authenticateAdmin, async (req, res) => {
+    try {
+        const { title, description, type, target_value, reward_type, reward_amount, expires_at } = req.body;
+
+        const { data, error } = await supabase
+            .from('admin_tasks')
+            .insert([{
+                title,
+                description,
+                type,
+                target_value,
+                reward_type,
+                reward_amount,
+                expires_at: expires_at || null,
+                is_active: true
+            }])
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update a task (Admin only)
+app.put('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        const { data, error } = await supabase
+            .from('admin_tasks')
+            .update(updates)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a task (Admin only)
+app.delete('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // First delete related progress to avoid FK constraints if not cascading
+        await supabase.from('user_task_progress').delete().eq('task_id', id);
+
+        const { error } = await supabase
+            .from('admin_tasks')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get active tasks for a user
+app.get('/tasks/active', async (req, res) => {
+    try {
+        const userId = req.headers['x-user-id']; // Assuming user ID is passed in headers for now, or use middleware
+        if (!userId) return res.status(400).json({ error: 'User ID required' });
+
+        // 1. Get all active tasks that haven't expired
+        const now = new Date().toISOString();
+        let query = supabase
+            .from('admin_tasks')
+            .select('*')
+            .eq('is_active', true);
+        
+        // Filter expiration manually or via query if supabase supports it well
+        const { data: tasks, error: tasksError } = await query;
+        if (tasksError) throw tasksError;
+
+        const validTasks = tasks.filter(t => !t.expires_at || new Date(t.expires_at) > new Date());
+
+        // 2. Get user progress for these tasks
+        const { data: progress, error: progressError } = await supabase
+            .from('user_task_progress')
+            .select('*')
+            .eq('user_id', userId)
+            .in('task_id', validTasks.map(t => t.id));
+
+        if (progressError && progressError.code !== 'PGRST116') throw progressError;
+
+        // 3. Merge data
+        const result = validTasks.map(task => {
+            const userProg = progress?.find(p => p.task_id === task.id);
+            return {
+                ...task,
+                progress: userProg?.progress || 0,
+                completed: userProg?.completed || false,
+                claimed: userProg?.claimed || false
+            };
+        });
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update task progress (Secure endpoint called by frontend actions)
+app.post('/tasks/progress', async (req, res) => {
+    try {
+        const { userId, taskId, increment } = req.body;
+        if (!userId || !taskId) return res.status(400).json({ error: 'Missing parameters' });
+
+        // Get task details
+        const { data: task, error: taskError } = await supabase
+            .from('admin_tasks')
+            .select('*')
+            .eq('id', taskId)
+            .single();
+
+        if (taskError || !task) return res.status(404).json({ error: 'Task not found' });
+        if (!task.is_active) return res.status(400).json({ error: 'Task is inactive' });
+
+        // Get current progress
+        const { data: currentProgress, error: progError } = await supabase
+            .from('user_task_progress')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('task_id', taskId)
+            .single();
+
+        let newProgress = (currentProgress?.progress || 0) + (increment || 1);
+        let completed = currentProgress?.completed || false;
+
+        // Check completion
+        if (!completed && newProgress >= task.target_value) {
+            completed = true;
+            newProgress = task.target_value; // Cap at target
+        }
+
+        // Upsert progress
+        const { data: updated, error: upsertError } = await supabase
+            .from('user_task_progress')
+            .upsert({
+                user_id: userId,
+                task_id: taskId,
+                progress: newProgress,
+                completed: completed,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id, task_id' })
+            .select()
+            .single();
+
+        if (upsertError) throw upsertError;
+
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Claim task reward
+app.post('/tasks/claim', async (req, res) => {
+    try {
+        const { userId, taskId } = req.body;
+        
+        // Verify task and progress
+        const { data: progress, error: progError } = await supabase
+            .from('user_task_progress')
+            .select('*, admin_tasks(*)') // Join to get reward details
+            .eq('user_id', userId)
+            .eq('task_id', taskId)
+            .single();
+
+        if (progError || !progress) return res.status(400).json({ error: 'Progress not found' });
+        if (!progress.completed) return res.status(400).json({ error: 'Task not completed' });
+        if (progress.claimed) return res.status(400).json({ error: 'Reward already claimed' });
+
+        const task = progress.admin_tasks;
+
+        // Award reward
+        if (task.reward_type === 'coins') {
+            const { data: player } = await supabase
+                .from('players')
+                .select('score')
+                .eq('user_id', userId)
+                .single();
+            
+            const newScore = new Decimal(player.score).plus(new Decimal(task.reward_amount));
+            
+            await supabase
+                .from('players')
+                .update({ score: newScore.toFixed(9) })
+                .eq('user_id', userId);
+                
+        } else if (task.reward_type === 'present') {
+             // Logic for presents (if applicable, or just log it for now)
+             // Assuming presents might be stored in a separate table or just logged
+             await supabase.from('user_logs').insert({
+                user_id: userId,
+                action_type: 'claim_present',
+                details: `Claimed present from task: ${task.title}`
+            });
+        }
+
+        // Mark claimed
+        const { data: updated, error: updateError } = await supabase
+            .from('user_task_progress')
+            .update({ claimed: true })
+            .eq('id', progress.id)
+            .select()
+            .single();
+
+        if (updateError) throw updateError;
+
+        res.json({ success: true, reward: { type: task.reward_type, amount: task.reward_amount } });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- End Task System ---
+
+// Start server
   try {
     const userId = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
