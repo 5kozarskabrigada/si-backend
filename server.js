@@ -9,8 +9,14 @@ const port = process.env.PORT || 3000;
 
 const SOLO_BET_CUTOFF_MS = 20 * 1000;
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn('WARNING: Using Anon Key for backend. Admin features may be blocked by RLS. Please add SUPABASE_SERVICE_ROLE_KEY to .env');
+} else {
+    console.log('Using Service Role Key for backend - Full Access Granted');
+}
 
 app.use(cors({
   origin: '*',
