@@ -67,6 +67,13 @@ function requireUser(req, res, next) {
   if (!userId) {
     return res.status(401).json({ error: 'Missing user identity' });
   }
+  
+  // Validate userId format (e.g. numeric string for Telegram IDs)
+  // This prevents random strings or bots from polluting the DB with garbage IDs
+  if (!/^\d+$/.test(String(userId))) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+  }
+
   req.userId = String(userId);
   next();
 }
@@ -213,6 +220,11 @@ app.post('/player/syncProfile', requireUser, async (req, res) => {
   const { username, first_name, last_name, language_code, photo_url } = req.body;
 
   if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+  
+  // Validate that username is present to prevent ghost users
+  if (!username) {
+      return res.status(400).json({ error: 'Missing username' });
+  }
 
   try {
     const { error } = await supabase.from('players').upsert(
@@ -299,7 +311,17 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
             try {
                 const { freeText, filters } = JSON.parse(search);
                 if (freeText && !freeText.includes(':')) {
-                    query = query.or(`receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
+                    // Check if freeText looks like a number (for ID/Amount search)
+                    const isNumeric = /^\d+(\.\d+)?$/.test(freeText);
+                    
+                    if (isNumeric) {
+                        // If numeric, search ID fields and Amount (exact match) + Text fields (partial)
+                        // Note: Ensure your DB columns are compatible. If sender_id is BIGINT, eq.123 works.
+                        query = query.or(`sender_id.eq.${freeText},receiver_id.eq.${freeText},amount.eq.${freeText},receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
+                    } else {
+                        // If text, search only text fields to prevent type errors
+                        query = query.or(`receiver_username.ilike.%${freeText}%,status.ilike.%${freeText}%`);
+                    }
                 }
                 if (filters && Array.isArray(filters)) {
                     filters.forEach(f => {
@@ -316,7 +338,12 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                 }
             } catch (e) {
                 if (search && !search.includes(':')) {
-                    query = query.or(`receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                     const isNumeric = /^\d+(\.\d+)?$/.test(search);
+                    if (isNumeric) {
+                        query = query.or(`sender_id.eq.${search},receiver_id.eq.${search},amount.eq.${search},receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                    } else {
+                        query = query.or(`receiver_username.ilike.%${search}%,status.ilike.%${search}%`);
+                    }
                 }
             }
         }
