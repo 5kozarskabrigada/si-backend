@@ -1320,7 +1320,7 @@ app.post('/tasks/claim', async (req, res) => {
 
 // --- End Task System ---
 
-// Start server
+app.post('/games/withdraw-solo', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
     if (!userId) return res.status(400).json({ error: 'Missing userId' });
