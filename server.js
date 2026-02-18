@@ -1130,9 +1130,11 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
 // Get all tasks (Admin only) - Enhanced with search and pagination
 app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
     try {
-        const { page = 1, limit = 15, search = '' } = req.query;
-        const from = (page - 1) * limit;
-        const to = from + limit - 1;
+        const { page = 1, limit = 15, search = '', sortBy = 'created_at', order = 'desc' } = req.query;
+        const p = parseInt(page);
+        const l = parseInt(limit);
+        const from = (p - 1) * l;
+        const to = from + l - 1;
 
         let query = supabase
             .from('admin_tasks')
