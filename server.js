@@ -158,9 +158,33 @@ app.get("/player/:userId", requireUser, async (req, res) => {
       });
     }
 
+    // Fetch owned skins for the player
+    const { data: ownedSkins = [], error: ownedErr } = await supabase
+      .from('user_skins')
+      .select('skin_id, unlocked_at, via, selected, skins (id, name, image_url, price)')
+      .eq('user_id', userId);
+
+    if (ownedErr) {
+      console.warn('Failed to fetch user skins:', ownedErr.message);
+    }
+
+    const owned = (ownedSkins || []).map(r => ({
+      id: r.skins?.id || r.skin_id,
+      name: r.skins?.name || null,
+      image_url: r.skins?.image_url || null,
+      price: r.skins?.price || null,
+      unlocked_at: r.unlocked_at,
+      via: r.via,
+      selected: r.selected || false
+    }));
+
+    const selectedSkin = owned.find(s => s.selected) || null;
+
     res.json({
       ...player,
       profile_photo_url: player.profile_photo_url,
+      owned_skins: owned,
+      selected_skin: selectedSkin,
     });
   } catch (error) {
     console.error('Error fetching player:', error);
@@ -1406,6 +1430,43 @@ app.post('/tasks/claim', async (req, res) => {
 
         if (updateError) throw updateError;
 
+        // Auto-grant any skins tied to this task
+        try {
+          const { data: skinsForTask, error: skinsErr } = await supabase
+            .from('skins')
+            .select('*')
+            .eq('task_id', taskId)
+            .eq('is_active', true);
+
+          if (skinsErr) {
+            console.warn('Failed to fetch skins for task auto-grant:', skinsErr.message);
+          } else if (skinsForTask && skinsForTask.length > 0) {
+            const granted = [];
+            for (const skin of skinsForTask) {
+              try {
+                const { data: userSkin, error: usErr } = await supabase
+                  .from('user_skins')
+                  .upsert({ user_id: userId, skin_id: skin.id, via: 'task' }, { onConflict: ['user_id', 'skin_id'] })
+                  .select()
+                  .single();
+
+                if (usErr) {
+                  console.warn('Failed to upsert user_skin for auto-grant:', usErr.message);
+                } else {
+                  granted.push({ id: skin.id, name: skin.name });
+                  await supabase.from('user_logs').insert({ user_id: userId, username: null, action_type: 'grant_skin', details: JSON.stringify({ skinId: skin.id, via: 'task', taskId }) });
+                }
+              } catch (e) {
+                console.warn('Error granting skin to user:', e.message);
+              }
+            }
+            // Attach granted skins to response
+            updated.granted_skins = granted;
+          }
+        } catch (e) {
+          console.warn('Auto-grant skins error:', e.message);
+        }
+
         res.json({ success: true, reward: { type: task.reward_type, amount: task.reward_amount } });
 
     } catch (error) {
@@ -2490,6 +2551,124 @@ app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
     const { error } = await supabase.from('admin_logs').delete().eq('id', logId);
     if (error) throw error;
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/** SKINS: Public and Admin Endpoints **/
+
+// Public - list active skins
+app.get('/skins', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('skins')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    res.json({ skins: data || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin - create skin
+app.post('/admin/skins', authenticateAdmin, async (req, res) => {
+  try {
+    const { name, image_url, price = null, task_id = null, is_active = true } = req.body;
+    if (!name || !image_url) return res.status(400).json({ error: 'Missing name or image_url' });
+
+    const { data, error } = await supabase.from('skins').insert({ name, image_url, price, task_id, is_active }).select().single();
+    if (error) throw error;
+    res.json({ success: true, skin: data });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin - update skin
+app.put('/admin/skins/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+    const { data, error } = await supabase.from('skins').update(updates).eq('id', id).select().single();
+    if (error) throw error;
+    res.json({ success: true, skin: data });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin - delete skin
+app.delete('/admin/skins/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('skins').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Purchase skin (requires user and sufficient balance)
+app.post('/skins/purchase', requireUser, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { skinId } = req.body;
+    if (!skinId) return res.status(400).json({ error: 'Missing skinId' });
+
+    // Fetch skin
+    const { data: skin, error: skinErr } = await supabase.from('skins').select('*').eq('id', skinId).single();
+    if (skinErr || !skin) return res.status(404).json({ error: 'Skin not found' });
+    if (!skin.price) return res.status(400).json({ error: 'This skin is not available for purchase' });
+
+    // Fetch player
+    const { data: player, error: playerErr } = await supabase.from('players').select('*').eq('user_id', userId).single();
+    if (playerErr || !player) return res.status(404).json({ error: 'Player not found' });
+
+    const playerScore = new Decimal(player.score || 0);
+    const price = new Decimal(skin.price || 0);
+    if (playerScore.lessThan(price)) return res.status(400).json({ error: 'Insufficient balance' });
+
+    const newScore = playerScore.minus(price).toFixed(9);
+
+    // Deduct from player and insert user_skins
+    const { error: updErr } = await supabase.from('players').update({ score: newScore, last_updated: new Date().toISOString() }).eq('user_id', userId);
+    if (updErr) throw updErr;
+
+    const { data: userSkin, error: usErr } = await supabase.from('user_skins').upsert({ user_id: userId, skin_id: skinId, via: 'purchase' }, { onConflict: ['user_id', 'skin_id'] }).select().single();
+    if (usErr) throw usErr;
+
+    // Log transaction-like entry
+    await supabase.from('user_logs').insert({ user_id: userId, username: player.username, action_type: 'purchase_skin', details: JSON.stringify({ skinId, price: price.toString() }) });
+
+    res.json({ success: true, skin: userSkin, newScore });
+  } catch (error) {
+    console.error('Purchase skin error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Select a skin (must be owned)
+app.post('/player/select-skin', requireUser, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { skinId } = req.body;
+    if (!skinId) return res.status(400).json({ error: 'Missing skinId' });
+
+    const { data: owned } = await supabase.from('user_skins').select('*').eq('user_id', userId).eq('skin_id', skinId).single();
+    if (!owned) return res.status(400).json({ error: 'You do not own this skin' });
+
+    // Unselect any previous
+    await supabase.from('user_skins').update({ selected: false }).eq('user_id', userId);
+    // Set selected
+    const { data, error } = await supabase.from('user_skins').update({ selected: true }).eq('user_id', userId).eq('skin_id', skinId).select().single();
+    if (error) throw error;
+
+    res.json({ success: true, selected: data });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

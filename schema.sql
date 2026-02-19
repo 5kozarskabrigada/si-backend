@@ -61,3 +61,35 @@ ALTER TABLE user_task_progress ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can read own progress" ON user_task_progress FOR SELECT USING (auth.uid()::text = user_id);
 CREATE POLICY "Users can update own progress" ON user_task_progress FOR UPDATE USING (auth.uid()::text = user_id);
 CREATE POLICY "Service role full access progress" ON user_task_progress USING (true) WITH CHECK (true);
+
+-- Skins Table: stores available skins that can be purchased or unlocked via tasks
+CREATE TABLE IF NOT EXISTS skins (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  image_url TEXT NOT NULL,
+  price NUMERIC, -- nullable: if null, skin must be obtained via task
+  task_id UUID REFERENCES admin_tasks(id), -- optional task that grants the skin when completed
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Mapping table for which users own which skins
+CREATE TABLE IF NOT EXISTS user_skins (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES players(user_id),
+  skin_id UUID NOT NULL REFERENCES skins(id),
+  unlocked_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  via TEXT DEFAULT 'purchase', -- 'purchase' or 'task'
+  selected BOOLEAN DEFAULT FALSE,
+  UNIQUE(user_id, skin_id)
+);
+
+-- RLS and policies for skins and user_skins
+ALTER TABLE skins ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read active skins" ON skins FOR SELECT USING (is_active = true);
+CREATE POLICY "Service role full access skins" ON skins USING (true) WITH CHECK (true);
+
+ALTER TABLE user_skins ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can read own skins" ON user_skins FOR SELECT USING (auth.uid()::text = user_id);
+CREATE POLICY "Users can update own selected skin" ON user_skins FOR UPDATE USING (auth.uid()::text = user_id) WITH CHECK (auth.uid()::text = user_id);
+CREATE POLICY "Service role full access user_skins" ON user_skins USING (true) WITH CHECK (true);
