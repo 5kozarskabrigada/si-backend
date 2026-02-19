@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -47,7 +47,7 @@ bot.onText(/\/start/, async (msg) => {
 
         bot.sendMessage(chatId, "Welcome back! Click the button below to play.", {
             reply_markup: {
-                inline_keyboard: [[{ text: "🚀 Open Game", web_app: { url: WEB_APP_URL } }]]
+                inline_keyboard: [[{ text: "ðŸš€ Open Game", web_app: { url: WEB_APP_URL } }]]
             }
         });
         console.log(`Successfully processed /start for user: ${username || telegram_id}`);
@@ -57,3 +57,5 @@ bot.onText(/\/start/, async (msg) => {
         bot.sendMessage(chatId, "Sorry, there was an error setting up your profile. Please try again later.");
     }
 });
+
+

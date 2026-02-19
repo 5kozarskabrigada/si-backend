@@ -25,7 +25,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// app.options('*', cors(corsOptions));
 
 app.use(express.json());
 
@@ -74,8 +73,6 @@ function requireUser(req, res, next) {
     return res.status(401).json({ error: 'Missing user identity' });
   }
   
-  // Validate userId format (e.g. numeric string for Telegram IDs)
-  // This prevents random strings or bots from polluting the DB with garbage IDs
   if (!/^\d+$/.test(String(userId))) {
       return res.status(400).json({ error: 'Invalid user ID format' });
   }
@@ -158,7 +155,6 @@ app.get("/player/:userId", requireUser, async (req, res) => {
       });
     }
 
-    // Fetch owned skins for the player
     const { data: ownedSkins = [], error: ownedErr } = await supabase
       .from('user_skins')
       .select('skin_id, unlocked_at, via, selected, skins (id, name, image_url, price)')
@@ -255,7 +251,6 @@ app.post('/player/syncProfile', requireUser, async (req, res) => {
 
   if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
   
-  // Validate that username is present to prevent ghost users
   if (!username) {
       return res.status(400).json({ error: 'Missing username' });
   }
@@ -347,15 +342,11 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
             try {
                 const { freeText, filters } = JSON.parse(search);
                 if (freeText && !freeText.includes(':')) {
-                    // Check if freeText looks like a number (for ID/Amount search)
                     const isNumeric = /^\d+(\.\d+)?$/.test(freeText);
                     
                     if (isNumeric) {
-                        // If numeric, search ID fields and Amount (exact match) + Text fields (partial)
-                        // Note: Ensure your DB columns are compatible. If sender_id is BIGINT, eq.123 works.
                         query = query.or(`sender_id.eq.${freeText},receiver_id.eq.${freeText},amount.eq.${freeText},receiver_username.ilike.%${freeText}%`);
                     } else {
-                        // If text, search only text fields to prevent type errors
                         query = query.or(`receiver_username.ilike.%${freeText}%`);
                     }
                 }
@@ -367,11 +358,9 @@ app.get('/admin/transaction-details', authenticateAdmin, async (req, res) => {
                         else if (key === 'sender') query = query.eq('sender_id', val);
                         else if (key === 'receiver') query = query.eq('receiver_id', val);
                         else if (key === 'status') {
-                            // Transactions table doesn't have status column, but frontend might send it
-                            // If user filters by status:success, we do nothing (all are success)
-                            // If user filters by status:failed, we return empty set
+                          
                             if (val !== 'success') {
-                                query = query.eq('sender_id', '0'); // Force empty result for non-success
+                                query = query.eq('sender_id', '0');
                             }
                         }
                         else if (key === 'date') query = query.gte('created_at', val).lte('created_at', val + 'T23:59:59');
@@ -476,7 +465,6 @@ app.post('/admin/broadcast', authenticateAdmin, async (req, res) => {
             if (activeError) throw activeError;
         }
 
-        // Always update the timestamp when any broadcast property is changed
         await supabase
             .from('config')
             .upsert({ key: 'broadcast_updated_at', value: String(Date.now()) }, { onConflict: 'key' });
@@ -1149,9 +1137,6 @@ app.post('/games/draw-solo', requireUser, async (req, res) => {
   }
 });
 
-// --- Task System Endpoints ---
-
-// Get all tasks (Admin only) - Enhanced with search and pagination
 app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
     try {
         const { page = 1, limit = 15, search = '', sortBy = 'created_at', order = 'desc' } = req.query;
@@ -1186,7 +1171,6 @@ app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
                     });
                 }
             } catch (e) {
-                // Fallback for simple string search
                 query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`);
             }
         }
@@ -1209,7 +1193,6 @@ app.get('/admin/tasks', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Create a new task (Admin only)
 app.post('/admin/tasks', authenticateAdmin, async (req, res) => {
     try {
         const { title, description, type, target_value, reward_type, reward_amount, expires_at, task_url } = req.body;
@@ -1237,7 +1220,6 @@ app.post('/admin/tasks', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Update a task (Admin only)
 app.put('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
     try {
         const { id } = req.params;
@@ -1257,12 +1239,10 @@ app.put('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Delete a task (Admin only)
 app.delete('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
-        // First delete related progress to avoid FK constraints if not cascading
         await supabase.from('user_task_progress').delete().eq('task_id', id);
 
         const { error } = await supabase
@@ -1277,26 +1257,22 @@ app.delete('/admin/tasks/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
-// Get active tasks for a user
 app.get('/tasks/active', async (req, res) => {
     try {
-        const userId = req.headers['x-user-id']; // Assuming user ID is passed in headers for now, or use middleware
+        const userId = req.headers['x-user-id']; 
         if (!userId) return res.status(400).json({ error: 'User ID required' });
 
-        // 1. Get all active tasks that haven't expired
         const now = new Date().toISOString();
         let query = supabase
             .from('admin_tasks')
             .select('*')
             .eq('is_active', true);
         
-        // Filter expiration manually or via query if supabase supports it well
         const { data: tasks, error: tasksError } = await query;
         if (tasksError) throw tasksError;
 
         const validTasks = tasks.filter(t => !t.expires_at || new Date(t.expires_at) > new Date());
 
-        // 2. Get user progress for these tasks
         const { data: progress, error: progressError } = await supabase
             .from('user_task_progress')
             .select('*')
@@ -1305,7 +1281,6 @@ app.get('/tasks/active', async (req, res) => {
 
         if (progressError && progressError.code !== 'PGRST116') throw progressError;
 
-        // 3. Merge data
         const result = validTasks.map(task => {
             const userProg = progress?.find(p => p.task_id === task.id);
             return {
@@ -1322,13 +1297,11 @@ app.get('/tasks/active', async (req, res) => {
     }
 });
 
-// Update task progress (Secure endpoint called by frontend actions)
 app.post('/tasks/progress', async (req, res) => {
     try {
         const { userId, taskId, increment } = req.body;
         if (!userId || !taskId) return res.status(400).json({ error: 'Missing parameters' });
 
-        // Get task details
         const { data: task, error: taskError } = await supabase
             .from('admin_tasks')
             .select('*')
@@ -1338,7 +1311,6 @@ app.post('/tasks/progress', async (req, res) => {
         if (taskError || !task) return res.status(404).json({ error: 'Task not found' });
         if (!task.is_active) return res.status(400).json({ error: 'Task is inactive' });
 
-        // Get current progress
         const { data: currentProgress, error: progError } = await supabase
             .from('user_task_progress')
             .select('*')
@@ -1349,13 +1321,11 @@ app.post('/tasks/progress', async (req, res) => {
         let newProgress = (currentProgress?.progress || 0) + (increment || 1);
         let completed = currentProgress?.completed || false;
 
-        // Check completion
         if (!completed && newProgress >= task.target_value) {
             completed = true;
-            newProgress = task.target_value; // Cap at target
+            newProgress = task.target_value; 
         }
 
-        // Upsert progress
         const { data: updated, error: upsertError } = await supabase
             .from('user_task_progress')
             .upsert({
@@ -1376,15 +1346,13 @@ app.post('/tasks/progress', async (req, res) => {
     }
 });
 
-// Claim task reward
 app.post('/tasks/claim', async (req, res) => {
     try {
         const { userId, taskId } = req.body;
         
-        // Verify task and progress
         const { data: progress, error: progError } = await supabase
             .from('user_task_progress')
-            .select('*, admin_tasks(*)') // Join to get reward details
+            .select('*, admin_tasks(*)') 
             .eq('user_id', userId)
             .eq('task_id', taskId)
             .single();
@@ -1395,7 +1363,6 @@ app.post('/tasks/claim', async (req, res) => {
 
         const task = progress.admin_tasks;
 
-        // Award reward
         if (task.reward_type === 'coins') {
             const { data: player } = await supabase
                 .from('players')
@@ -1411,8 +1378,6 @@ app.post('/tasks/claim', async (req, res) => {
                 .eq('user_id', userId);
                 
         } else if (task.reward_type === 'present') {
-             // Logic for presents (if applicable, or just log it for now)
-             // Assuming presents might be stored in a separate table or just logged
              await supabase.from('user_logs').insert({
                 user_id: userId,
                 action_type: 'claim_present',
@@ -1420,7 +1385,6 @@ app.post('/tasks/claim', async (req, res) => {
             });
         }
 
-        // Mark claimed
         const { data: updated, error: updateError } = await supabase
             .from('user_task_progress')
             .update({ claimed: true })
@@ -1430,7 +1394,6 @@ app.post('/tasks/claim', async (req, res) => {
 
         if (updateError) throw updateError;
 
-        // Auto-grant any skins tied to this task
         try {
           const { data: skinsForTask, error: skinsErr } = await supabase
             .from('skins')
@@ -1460,7 +1423,6 @@ app.post('/tasks/claim', async (req, res) => {
                 console.warn('Error granting skin to user:', e.message);
               }
             }
-            // Attach granted skins to response
             updated.granted_skins = granted;
           }
         } catch (e) {
@@ -1474,7 +1436,6 @@ app.post('/tasks/claim', async (req, res) => {
     }
 });
 
-// --- End Task System ---
 
 app.post('/games/withdraw-solo', requireUser, async (req, res) => {
   try {
@@ -1947,7 +1908,6 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
                     else if (val === 'admin') query = query.eq('is_admin', true);
                 }
                 else if (key === 'score') {
-                    // Simple greater than for now, or could parse ranges
                     if (!isNaN(val)) query = query.gte('score', val);
                 }
                 else if (key === 'date') query = query.gte('last_updated', val).lte('last_updated', val + 'T23:59:59');
@@ -1956,7 +1916,6 @@ app.get('/admin/users', authenticateAdmin, async (req, res) => {
             });
         }
       } catch (e) {
-        // Fallback to simple search
         query = query.or(`username.ilike.%${search}%,user_id.eq.${search},first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
       }
     }
@@ -2556,9 +2515,7 @@ app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
   }
 });
 
-/** SKINS: Public and Admin Endpoints **/
 
-// Public - list active skins
 app.get('/skins', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -2574,7 +2531,6 @@ app.get('/skins', async (req, res) => {
   }
 });
 
-// Admin - create skin
 app.post('/admin/skins', authenticateAdmin, async (req, res) => {
   try {
     const { name, image_url, price = null, task_id = null, is_active = true } = req.body;
@@ -2588,7 +2544,6 @@ app.post('/admin/skins', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Admin - update skin
 app.put('/admin/skins/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -2601,7 +2556,6 @@ app.put('/admin/skins/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Admin - delete skin
 app.delete('/admin/skins/:id', authenticateAdmin, async (req, res) => {
   try {
     const { id } = req.params;
@@ -2613,19 +2567,16 @@ app.delete('/admin/skins/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Purchase skin (requires user and sufficient balance)
 app.post('/skins/purchase', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
     const { skinId } = req.body;
     if (!skinId) return res.status(400).json({ error: 'Missing skinId' });
 
-    // Fetch skin
     const { data: skin, error: skinErr } = await supabase.from('skins').select('*').eq('id', skinId).single();
     if (skinErr || !skin) return res.status(404).json({ error: 'Skin not found' });
     if (!skin.price) return res.status(400).json({ error: 'This skin is not available for purchase' });
 
-    // Fetch player
     const { data: player, error: playerErr } = await supabase.from('players').select('*').eq('user_id', userId).single();
     if (playerErr || !player) return res.status(404).json({ error: 'Player not found' });
 
@@ -2635,14 +2586,12 @@ app.post('/skins/purchase', requireUser, async (req, res) => {
 
     const newScore = playerScore.minus(price).toFixed(9);
 
-    // Deduct from player and insert user_skins
     const { error: updErr } = await supabase.from('players').update({ score: newScore, last_updated: new Date().toISOString() }).eq('user_id', userId);
     if (updErr) throw updErr;
 
     const { data: userSkin, error: usErr } = await supabase.from('user_skins').upsert({ user_id: userId, skin_id: skinId, via: 'purchase' }, { onConflict: ['user_id', 'skin_id'] }).select().single();
     if (usErr) throw usErr;
 
-    // Log transaction-like entry
     await supabase.from('user_logs').insert({ user_id: userId, username: player.username, action_type: 'purchase_skin', details: JSON.stringify({ skinId, price: price.toString() }) });
 
     res.json({ success: true, skin: userSkin, newScore });
@@ -2652,7 +2601,6 @@ app.post('/skins/purchase', requireUser, async (req, res) => {
   }
 });
 
-// Select a skin (must be owned)
 app.post('/player/select-skin', requireUser, async (req, res) => {
   try {
     const userId = req.userId;
@@ -2662,9 +2610,8 @@ app.post('/player/select-skin', requireUser, async (req, res) => {
     const { data: owned } = await supabase.from('user_skins').select('*').eq('user_id', userId).eq('skin_id', skinId).single();
     if (!owned) return res.status(400).json({ error: 'You do not own this skin' });
 
-    // Unselect any previous
     await supabase.from('user_skins').update({ selected: false }).eq('user_id', userId);
-    // Set selected
+
     const { data, error } = await supabase.from('user_skins').update({ selected: true }).eq('user_id', userId).eq('skin_id', skinId).select().single();
     if (error) throw error;
 
