@@ -124,6 +124,22 @@ app.get("/player/:userId", requireUser, async (req, res) => {
         .single();
       if (insertError) throw insertError;
       player = newPlayer;
+
+      const { data: defaultSkins } = await supabase
+        .from('skins')
+        .select('id')
+        .eq('name', 'Original Skin')
+        .eq('is_active', true)
+        .limit(1);
+      
+      if (defaultSkins && defaultSkins.length > 0) {
+        await supabase.from('user_skins').insert({
+          user_id: userId,
+          skin_id: defaultSkins[0].id,
+          via: 'free',
+          selected: true
+        }).select();
+      }
     } else if (error) {
       throw error;
     }
@@ -2518,13 +2534,31 @@ app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
 
 app.get('/skins', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('skins')
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
+
+    if (!data || data.length === 0) {
+      const defaultSkin = {
+        name: 'Original Skin',
+        image_url: '/assets/skin1.png',
+        price: null,
+        task_id: null,
+        is_active: true
+      };
+      const { data: created, error: createErr } = await supabase
+        .from('skins')
+        .insert(defaultSkin)
+        .select();
+      if (!createErr && created && created.length > 0) {
+        data = created;
+      }
+    }
+
     res.json({ skins: data || [] });
   } catch (error) {
     res.status(500).json({ error: error.message });
