@@ -127,15 +127,36 @@ app.get("/player/:userId", requireUser, async (req, res) => {
 
       const { data: defaultSkins } = await supabase
         .from('skins')
-        .select('id')
+        .select('id, name')
         .eq('name', 'Original Skin')
         .eq('is_active', true)
         .limit(1);
       
+      let originalSkinId = null;
       if (defaultSkins && defaultSkins.length > 0) {
+        originalSkinId = defaultSkins[0].id;
+      } else {
+        const { data: createdSkin } = await supabase
+          .from('skins')
+          .insert({
+            name: 'Original Skin',
+            image_url: '/assets/skin1.png',
+            price: null,
+            task_id: null,
+            is_active: true
+          })
+          .select()
+          .single();
+        
+        if (createdSkin) {
+          originalSkinId = createdSkin.id;
+        }
+      }
+
+      if (originalSkinId) {
         await supabase.from('user_skins').insert({
           user_id: userId,
-          skin_id: defaultSkins[0].id,
+          skin_id: originalSkinId,
           via: 'free',
           selected: true
         }).select();
@@ -2534,6 +2555,28 @@ app.delete('/admin/admin-logs/:logId', authenticateAdmin, async (req, res) => {
 
 app.get('/skins', async (req, res) => {
   try {
+
+    const { data: existingSkins } = await supabase
+      .from('skins')
+      .select('id')
+      .eq('name', 'Original Skin')
+      .eq('is_active', true)
+      .limit(1);
+
+    if (!existingSkins || existingSkins.length === 0) {
+
+      await supabase
+        .from('skins')
+        .insert({
+          name: 'Original Skin',
+          image_url: '/assets/skin1.png',
+          price: null,
+          task_id: null,
+          is_active: true
+        })
+        .select();
+    }
+
     let { data, error } = await supabase
       .from('skins')
       .select('*')
@@ -2541,23 +2584,6 @@ app.get('/skins', async (req, res) => {
       .order('created_at', { ascending: true });
 
     if (error) throw error;
-
-    if (!data || data.length === 0) {
-      const defaultSkin = {
-        name: 'Original Skin',
-        image_url: '/assets/skin1.png',
-        price: null,
-        task_id: null,
-        is_active: true
-      };
-      const { data: created, error: createErr } = await supabase
-        .from('skins')
-        .insert(defaultSkin)
-        .select();
-      if (!createErr && created && created.length > 0) {
-        data = created;
-      }
-    }
 
     res.json({ skins: data || [] });
   } catch (error) {
